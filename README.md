@@ -1,2 +1,2 @@
 # minc-scripts
-various scripts processing minc files or minx-associated files
+various scripts processing minc files or minc-associated files
