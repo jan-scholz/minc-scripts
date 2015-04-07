@@ -132,5 +132,3 @@ if __name__ == "__main__":
 
     writeMeshFile(triangles, options.outfilename, binary=options.binary,
                   verbose=options.verbose)
-
-# vtkMNITransformReader/Writer
