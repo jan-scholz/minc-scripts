@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # 2015-04-10
-# concate two tag files in column direction for input in tag2xfm
+# concate two tag files in column direction for input in tagtoxfm
 
 
 from optparse import OptionParser
@@ -51,7 +51,7 @@ def cbind_tagfiles(outname, filename1, filename2, verbose=False):
 
     footer = ';'
     header = """MNI Tag Point File
-Volumes = 1;
+Volumes = 2;
 %% File created automatically by %s. Input tag files:
 %% %s, %s
 
