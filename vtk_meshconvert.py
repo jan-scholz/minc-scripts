@@ -17,11 +17,12 @@ class MyParser(OptionParser):
         return '\n' + self.epilog + '\n'
 
 
-def readMeshFile(filename, verbose=False):
+def readMeshFile(filename, clean=True, verbose=False):
     """Read mesh file.
-    The input format is determined by file name extension. Degenerate data gets
-    removed and polygons get split into triangles to support varios restrictive
-    output formats."""
+    The input format is determined by file name extension.
+    Polygons get split into triangles to support various restrictive output
+    formats.
+    If clean, degenerate data gets removed."""
 
     informat = path.splitext(options.infilename)[1].strip('.')
     # set reader based on filename extension
@@ -38,16 +39,21 @@ def readMeshFile(filename, verbose=False):
     reader.SetFileName(filename)
 
     # merge duplicate points, and/or remove unused points and/or remove degenerate cells
-    clean = vtk.vtkCleanPolyData()
-    clean.SetInputConnection(reader.GetOutputPort())
+    if clean:
+        polydata = vtk.vtkCleanPolyData()
+        polydata.SetInputConnection(reader.GetOutputPort())
+        poly_data_algo = polydata
+        if verbose:
+            print "cleaned poly data"
+    else:
+        poly_data_algo = reader
 
     # convert input polygons and strips to triangles
     triangles = vtk.vtkTriangleFilter()
-    triangles.SetInputConnection(clean.GetOutputPort())
+    triangles.SetInputConnection(poly_data_algo.GetOutputPort())
 
-    #triangles = reader.GetOutputPort()  # skipping above 'cleaning' doesn't work
     if verbose:
-        print "read", filename
+        print "finished reading", filename
 
     return triangles
 
@@ -109,6 +115,9 @@ if __name__ == "__main__":
     parser.add_option("-a", "--ascii", dest="binary",
                       help="save in ascii format",
                       action="store_false", default=True)
+    parser.add_option("--noclean", dest="clean",
+                      help="remove degenerate data",
+                      action="store_false", default=True)
     parser.add_option("-v", "--verbose", dest="verbose",
                       help="more verbose output",
                       action="store_true", default=False)
@@ -128,7 +137,7 @@ if __name__ == "__main__":
     if outpath and not path.exists(outpath):
         parser.error('output directory does not exist: ' + outpath)
 
-    triangles = readMeshFile(options.infilename, options.verbose)
+    triangles = readMeshFile(options.infilename, clean=options.clean, verbose=options.verbose)
 
     writeMeshFile(triangles, options.outfilename, binary=options.binary,
                   verbose=options.verbose)
