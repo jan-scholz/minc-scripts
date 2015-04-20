@@ -35,7 +35,7 @@ def readMeshFile(filename, clean=True, verbose=False):
     #elif informat=='tag':
     #    reader = vtk.vtkMNITagPointReader()
     else:
-        raise ValueError('cannot read input format' + informat)
+        raise ValueError('cannot read input format: ' + informat)
     reader.SetFileName(filename)
 
     # merge duplicate points, and/or remove unused points and/or remove degenerate cells
