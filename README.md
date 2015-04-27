@@ -9,5 +9,5 @@ various scripts processing minc files or minc-associated files
 `vtk_meshconvert.py` depends on [VTK](http://www.vtk.org/download/), in particular VTK's Python bindings.
 On a Mac install the [homebrew](http://brew.sh) package manager and then install VTK (`brew install vtk`).
 
-pTFCE.py depends on [pyminc](https://github.com/Mouse-Imaging-Centre/pyminc).
+`pTFCE.py` depends on [pyminc](https://github.com/Mouse-Imaging-Centre/pyminc).
 
