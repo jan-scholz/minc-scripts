@@ -49,10 +49,10 @@ xfm2def -xnelements ${P[0]} -ynelements ${P[1]} -znelements ${P[2]} \
 # check and correct dimension order
 VARDIMSOUT=(`mincinfo -vardims image $OUTGRID`)
 if [ ! "${VARDIMS[*]}" = "${VARDIMSOUT[*]}" ]; then
-    echo "unequal ${VARDIMS[*]} != ${VARDIMSOUT[*]}"
-    mv -v $OUTGRID ${OUTGRID/.mnc/_tmp.mnc}
-    mincreshape -dimorder `echo ${VARDIMSOUT[*]} | tr ' ' ','`  ${OUTGRID/.mnc/_tmp.mnc} $OUTGRID
-    rm -v ${OUTGRID/.mnc/_tmp.mnc}
+    echo "reshaping ${VARDIMSOUT[*]} -> ${VARDIMS[*]}"
+    mv $OUTGRID ${OUTGRID/.mnc/_tmp.mnc}
+    mincreshape -dimorder `echo ${VARDIMS[*]} | tr ' ' ','`  ${OUTGRID/.mnc/_tmp.mnc} $OUTGRID
+    rm ${OUTGRID/.mnc/_tmp.mnc}
 fi
 
 
