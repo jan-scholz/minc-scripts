@@ -1,0 +1,72 @@
+#! /bin/bash
+# 
+# author: jan.scholz@mouseimaging.ca
+# original version: 2015-05-24
+#
+# create a xfm file with a single associated grid file from xfm file with 
+# multiple associated grid files
+# retains input dimension orders
+
+usage ()
+{
+    echo "Usage: $(basename $0) -o OUTBASE XFMFILE"
+    echo "  -o OUTBASE    name of output file"
+}
+
+
+while getopts o:v opt
+do
+    case "$opt" in
+        o)  OUTBASE="$OPTARG";;
+        v)  VERBOSE=1;;
+        \?)  usage; exit 1;;
+    esac
+done
+shift $(expr $OPTIND - 1)
+
+[ $# -lt 1 ] && { usage; exit 1; }
+
+
+INXFM=$1
+INGRID0=${INXFM/.xfm/_grid_0.mnc}
+
+OUTXFM=${OUTBASE}.xfm
+OUTGRID=${OUTBASE}_grid_0.mnc
+
+# dimensions of the input grid
+P=(`mincinfo -dimlength xspace -dimlength yspace -dimlength zspace -attvalue xspace:start -attvalue yspace:start -attvalue zspace:start -attvalue xspace:step -attvalue yspace:step -attvalue zspace:step $INGRID0`)
+
+# dimension order
+VARDIMS=(`mincinfo -vardims image $INGRID0`)
+
+# combine grid files
+xfm2def -xnelements ${P[0]} -ynelements ${P[1]} -znelements ${P[2]} \
+        -xstart ${P[3]}     -ystart ${P[4]}     -zstart ${P[5]}     \
+        -xstep ${P[6]}      -ystep ${P[7]}      -zstep ${P[8]}      \
+        -float -clobber -verbose $INXFM $OUTGRID
+
+
+# check and correct dimension order
+VARDIMSOUT=(`mincinfo -vardims image $OUTGRID`)
+if [ ! "${VARDIMS[*]}" = "${VARDIMSOUT[*]}" ]; then
+    echo "unequal ${VARDIMS[*]} != ${VARDIMSOUT[*]}"
+    mv -v $OUTGRID ${OUTGRID/.mnc/_tmp.mnc}
+    mincreshape -dimorder `echo ${VARDIMSOUT[*]} | tr ' ' ','`  ${OUTGRID/.mnc/_tmp.mnc} $OUTGRID
+    rm -v ${OUTGRID/.mnc/_tmp.mnc}
+fi
+
+
+# create xfm file with linear identity transform
+cat > $OUTXFM << EOF
+MNI Transform File
+Transform_Type = Linear;
+Linear_Transform =
+ 1 0 0 0
+ 0 1 0 0
+ 0 0 1 0;
+Transform_Type = Grid_Transform;
+Displacement_Volume = ${OUTGRID};
+EOF
+
+
+
