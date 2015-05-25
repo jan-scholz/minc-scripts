@@ -65,7 +65,7 @@ Linear_Transform =
  0 1 0 0
  0 0 1 0;
 Transform_Type = Grid_Transform;
-Displacement_Volume = ${OUTGRID};
+Displacement_Volume = `basename ${OUTGRID}`;
 EOF
 
 
