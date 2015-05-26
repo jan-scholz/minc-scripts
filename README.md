@@ -11,3 +11,5 @@ On a Mac install the [homebrew](http://brew.sh) package manager and then install
 
 `pTFCE.py` depends on [pyminc](https://github.com/Mouse-Imaging-Centre/pyminc).
 
+`xfm_merge` depends on [minc tools](http://packages.bic.mni.mcgill.ca/minc-toolkit/)
+
