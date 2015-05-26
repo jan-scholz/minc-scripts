@@ -39,6 +39,9 @@ P=(`mincinfo -dimlength xspace -dimlength yspace -dimlength zspace -attvalue xsp
 # dimension order
 VARDIMS=(`mincinfo -vardims image $INGRID0`)
 
+MINC_COMPRESS_ORIG=${MINC_COMPRESS}
+export MINC_COMPRESS=0
+
 # combine grid files
 xfm2def -xnelements ${P[0]} -ynelements ${P[1]} -znelements ${P[2]} \
         -xstart ${P[3]}     -ystart ${P[4]}     -zstart ${P[5]}     \
@@ -55,6 +58,7 @@ if [ ! "${VARDIMS[*]}" = "${VARDIMSOUT[*]}" ]; then
     rm ${OUTGRID/.mnc/_tmp.mnc}
 fi
 
+export MINC_COMPRESS=${MINC_COMPRESS_ORIG}
 
 # create xfm file with linear identity transform
 cat > $OUTXFM << EOF
