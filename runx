@@ -1,0 +1,93 @@
+#! /bin/bash
+# 
+# tail -n$NJOBS \$0 | parallel -v -j$PJOBS -S\$NODES -W$PWD
+# --env ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS
+
+usage ()
+{
+	echo "Usage: `basename $0` COMMANDSFILE"
+	echo
+	echo "  -n NODES      number of nodes"
+	echo "  -p PJOBS      number of jobs execuded in parallel on a single node"
+	echo "  -w WALLTIME   x:xx:xx"
+	echo "  -m MEMORY     16 (3756),18 (24),32 (84),128 (2) (default 16)"
+	echo
+	echo "  -l NLINES     split into chunks with N lines (automatically adjusts"
+	echo "                nodes for each chunk)"
+}
+
+
+while getopts n:p:w:m:l: opt
+do
+    case "$opt" in
+      n) NNODESTOT="$OPTARG";;
+      p)     PJOBS="$OPTARG";;
+      w)      WALL="$OPTARG";;
+      m)    MEMORY="$OPTARG";;
+      l)    NLINES="$OPTARG";;
+      \?)  usage; exit 1;;
+    esac
+done
+shift `expr $OPTIND - 1`
+
+[ $# -lt 1 ] && { usage; exit 1; }
+
+
+case "$MEMORY" in
+	 16) MEMORY="";;
+	 18) MEMORY=":ib:m18g";;
+	 32) MEMORY=":ib:m32g";;
+	128) QUEUE="-q largemem";;
+	  ?*) { echo "ERROR: illegal memory request"; exit 1; }
+esac
+
+COMMANDSFILE=$1
+NNODESTOT=${NNODESTOT:-1}
+PJOBS=${PJOBS:-4}
+WALL=${WALL:-4:00:00}
+NJOBSTOT=`cat $COMMANDSFILE | wc -l`
+NLINES=${NLINES:-$NJOBSTOT}
+
+OUTBASE=runx.$$
+OUTFILES=$(split --verbose --numeric-suffixes --suffix-length=4 -l $NLINES $COMMANDSFILE /tmp/${OUTBASE}. | sed -e 's/creating file `\(.*\)'\''$/\1/g')
+
+
+for f in $OUTFILES; do
+	NJOBS=`cat $f | wc -l`
+	g=`basename $f`
+	NNODES=$(($NNODESTOT*$NJOBS/$NJOBSTOT))
+	[ "$NJOBS" -gt $(($NNODES*$PJOBS)) ] && let NNODES++
+	[ "$NJOBS" -ne $(($NNODES*$PJOBS)) ] && echo "Warning: at least one of $NNODES nodes might not run $PJOBS parallel processes"
+
+cat <<EOF > $g
+#!/bin/bash
+#
+# $g
+#
+#PBS -l nodes=${NNODES}${MEMORY}:ppn=8,walltime=$WALL $QUEUE
+#PBS -N `basename ${COMMANDSFILE}`_${NNODES}
+
+echo "running the following programs in parallel (${PJOBS})"
+tail -n$NJOBS \$0
+echo
+echo START
+
+module load gnu-parallel/20140622
+
+tail -n$NJOBS \$0 | parallel -v -j$PJOBS --sshloginfile \$PBS_NODEFILE --workdir $PWD
+
+echo DONE
+exit 0
+EOF
+cat $f >> $g
+
+	RUNFILES="$RUNFILES $g"
+done
+
+echo "now run:"
+for f in $RUNFILES; do
+	echo "qsub $f"
+done
+
+rm -f $OUTFILES
+
