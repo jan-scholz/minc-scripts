@@ -1,0 +1,54 @@
+#! /bin/bash
+# given a table find label name from label number and vice versa
+#
+# Copyright 2012, jan.scholz@mouseimaging.ca at MICe
+
+
+DEFS=$RMINC_LABEL_DEFINITIONS
+
+usage ()
+{
+	echo "Usage: $(basename $0) [-d DEFS] LABEL.."
+	echo "  -d DEFS  label definitions CSV file"
+	echo "           (default: $DEFS)"
+	echo "  LABEL    one or several numbers or strings refering to label numbers or names"
+	echo
+}
+
+while getopts d: opt
+do
+	case "$opt" in
+		d)  DEFS="$OPTARG";;
+		\?)  usage; exit 1;;
+	esac
+done
+shift $(expr $OPTIND - 1)
+
+
+[ $# -lt 1 ] && { usage; exit 1; }
+
+
+[ -f "$DEFS" ] || { echo "ERROR: Could not find DEFS: $DEFS"; exit 1; }
+
+
+
+COLNAMES=`head -n1 $DEFS`
+
+cat $DEFS | while read LINE; do
+	STRUCTURE=`echo $LINE | awk -F, '{print $2}'`
+	for i in $@; do
+		[ "`echo $LINE | awk -F, '{print $3}'`" == "$i" ] && printf "found \"%g\" in \"%s\" of \"%s\"\n" $i "`echo $COLNAMES | awk -F, '{print $2}'`" "$STRUCTURE"
+		[ "`echo $LINE | awk -F, '{print $4}'`" == "$i" ] && printf "found \"%g\" in \"%s\" of \"%s\"\n" $i "`echo $COLNAMES | awk -F, '{print $3}'`" "$STRUCTURE"
+
+		if `echo $LINE | awk -F, '{print $2}' | grep $i > /dev/null`; then
+			printf "found \"%s\" in \"%s\" with \"%s\" \"%g\" and \"%s\" \"%g\" \n" $i "$STRUCTURE" "`echo $COLNAMES | awk -F, '{print $2}'`" "`echo $LINE | awk -F, '{print $3}'`"  "`echo $COLNAMES | awk -F, '{print $3}'`"  "`echo $LINE | awk -F, '{print $4}'`"
+		fi
+
+	done
+done
+
+
+
+
+exit 0
+
