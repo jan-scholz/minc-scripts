@@ -1,0 +1,162 @@
+#! /bin/bash
+# threshold statistical images
+#
+# TODO
+# make micecluster threshold cluster size
+# make micecluster output cluster size thresholded p/t map
+TWOSIDED=1   # threshold is two-sided, i.e. threshold is applied to abs(stats)
+COLOR="-c"
+
+usage ()
+{
+	echo "Usage: $(basename $0) [-t THRESH | -u UTHRESH] -m MASK INPUT"
+	echo "-t THRESH       lower threshold, smaller values get removed"
+	echo "-u UTHRESH      upper threshold, larger values get removed"
+	echo "-m MASK         mask input"
+	echo "INPUT           stats map"
+	echo
+	echo "-x VOX-THRESH   threshold clusters at specific number of voxels"
+	echo "-i              invert stats first (i.e. 1-x)"
+	echo "-U UTHRESH      mask upper threshold, larger values get removed"
+	echo "-T THRESH       mask lower threshold, smaller values get removed"
+	echo "-a APPLYTO      derive cluster summary stats from APPLYTO"
+	echo
+	echo "-l              create labels file (for mincAnatGetAll)"
+	echo
+	echo "EXAMPLE (threshold tmap with p):"
+	echo "    micecluster2 -m pvalues.mnc -U 0.05 -x 1 -t 0.01 tvalues.mnc"
+	echo
+}
+
+LOGSTRING="`date`: $0 $@"
+
+while getopts u:t:U:T:m:o:x:a:liv opt
+do
+	case "$opt" in
+		u)     UTHRESH="$OPTARG";;
+		t)      THRESH="$OPTARG";;
+		U) MASKUTHRESH="$OPTARG";;
+		T)  MASKTHRESH="$OPTARG";;
+		m)        MASK="$OPTARG";;
+		o)     OUTBASE="$OPTARG";;
+		x)   VOXTHRESH="$OPTARG";;
+		a)     APPLYTO="$OPTARG";;
+		l)      LABELS="$OPTARG";;
+		i)      INVERT=1;;
+		v)     VERBOSE=1;;
+		\?) usage; exit 1;;
+	esac
+done
+shift $(expr $OPTIND - 1)
+
+
+[ $# -lt 1 ] && { usage; exit 1; }
+[ -z "$TMPDIR" ] && { echo "ERROR: \$TMPDIR not set"; exit 1; }
+
+INPUT=$1
+[ -f "$INPUT" ] || { echo "ERROR: could not find INPUT: $INPUT"; exit 1; }
+
+[ -z "$THRESH" -a -z "$UTHRESH" ] && { echo "ERROR: no threshold specified"; exit 1; }
+[ -z "$THRESH" -o -z "$UTHRESH" ] || { echo "ERROR: specify only one threshold"; exit 1; }
+
+THRESH="${THRESH}${UTHRESH}"
+[ -z "$OUTBASE" ] && OUTBASE=`basename $INPUT .mnc`
+OUTNAME=clusters_${OUTBASE}_thr${THRESH}
+
+TDIR=$TMPDIR/$USER/$$; mkdir -p $TDIR
+trap "{ rm -rf $TDIR; exit 255; }" SIGINT SIGTERM
+
+# input
+miceconvert ${COLOR} $INPUT $TDIR/input_orig
+imcp $TDIR/input_orig $TDIR/input
+
+# mask
+if [ -z "$MASK" ]; then
+	echo "Warning: mask not specified, using whole volume"
+	fslmaths $TDIR/input -mul 0 -add 1 $TDIR/mask
+	MASK=$TDIR/mask
+else
+	[ -f "$MASK" ] || { echo "ERROR: could not find MASK: $MASK"; exit 1; }
+	miceconvert ${COLOR} $MASK $TDIR/mask
+fi
+[ -z "$MASKUTHRESH" ] || fslmaths $TDIR/mask -uthr $MASKUTHRESH $TDIR/mask
+[ -z "$MASKTHRESH" ]  || fslmaths $TDIR/mask -thr  $MASKTHRESH  $TDIR/mask
+fslmaths $TDIR/mask -bin $TDIR/mask
+
+# two-sided, inverting
+[ "$TWOSIDED" = 1 ] && fslmaths $TDIR/input -abs $TDIR/input
+if [ ! -z "$INVERT" ]; then
+	echo "Warning: inverting INPUT"
+	fslmaths $TDIR/input -mul -1 -add 1 -mul $TDIR/mask $TDIR/input
+fi
+
+# input thresholding
+if [ ! -z "$UTHRESH" ]; then
+	echo using upper threshold: $UTHRESH
+	# invert because cluster's -t threshold is a lower threshold
+	echo "Warning: inverting INPUT"
+	fslmaths $TDIR/input -mul -1 -add 1 $TDIR/input
+	THRESH=`python -c "print 1.0 - $THRESH"`
+else
+	echo using lower threshold: $THRESH
+fi
+fslmaths $TDIR/input -mul $TDIR/mask $TDIR/input
+
+# clustering
+OINDEX="--oindex=$TDIR/masked_index"
+cluster --mm -i $TDIR/input -t $THRESH $OINDEX --osize=$TDIR/masked_size > $TDIR/${OUTNAME}.mm.txt.2
+cluster      -i $TDIR/input -t $THRESH $OINDEX --osize=$TDIR/masked_size > $TDIR/${OUTNAME}.vox.txt.2
+
+# yield these columns: Cluster_Index Voxels COG-X.mm COG-Y.mm COG-Z.mm
+sed -e 's/Cluster Index/Cluster_Index/' -e 's/\(MAX\|COG\) \(.\) (\(mm\|vox\))/\1-\2/g' $TDIR/${OUTNAME}.mm.txt.2 | awk '{print $1,$2,$7,$8,$9,$4,$5,$6}' > $TDIR/${OUTNAME}.mm.txt
+sed -e 's/Cluster Index/Cluster_Index/' -e 's/\(MAX\|COG\) \(.\) (\(mm\|vox\))/\1-\2/g' $TDIR/${OUTNAME}.vox.txt.2| awk '{print $1,$2,$7,$8,$9,$4,$5,$6}' > $TDIR/${OUTNAME}.vox.txt
+
+miceconvert ${COLOR} $TDIR/masked_size.nii.gz  ${OUTNAME}_size.mnc
+miceconvert ${COLOR} $TDIR/masked_index.nii.gz ${OUTNAME}_index.mnc
+
+
+# create labels file for mincAnatGetAll
+if [ -z "$LABELS" ]; then
+	echo "Structure,right label,left label" > $TDIR/labels.csv
+	awk 'NR>1 {printf "cluster%04i,%i,%i\n",$1,$1,$1}' $TDIR/${OUTNAME}.mm.txt >> $TDIR/labels.csv
+	cp $TDIR/labels.csv ${OUTNAME}_labels.csv
+fi
+
+
+# add cluster summary column(s)
+APPLYTO=${APPLYTO:-$INPUT}
+for a in $APPLYTO; do
+	[ -f "$APPLYTO" ] || { echo "ERROR: could not find apply-to file: $APPLYTO"; exit 1; }
+	echo "summary stats from: $APPLYTO (this may take a while)"
+	echo "`basename $a .mnc`_max `basename $a .mnc`_mean" > $TDIR/means.txt
+	for i in `awk 'NR>1 { print $1 }' ${OUTNAME}.mm.txt`; do
+		printf "%f %f\n" `mincstats -quiet -mask_binvalue $i -mask ${OUTNAME}_index.mnc -max -mean $a`
+	done >> $TDIR/means.txt
+done
+
+
+paste -d' ' $TDIR/${OUTNAME}.mm.txt  $TDIR/means.txt > ${OUTNAME}.mm.txt
+paste -d' ' $TDIR/${OUTNAME}.vox.txt $TDIR/means.txt > ${OUTNAME}.vox.txt
+
+
+# create cluster-size thresholded table and size minc file
+if [ ! -z "$VOXTHRESH" ]; then
+	head -n1 ${OUTNAME}.mm.txt > ${OUTNAME}.mm.gt${VOXTHRESH}.txt
+	tail -n+2 ${OUTNAME}.mm.txt | while read LINE; do
+		LINE=($LINE)
+		[ ${LINE[1]} -lt $VOXTHRESH ] && break
+		echo ${LINE[@]}
+	done >> ${OUTNAME}.mm.gt${VOXTHRESH}.txt
+
+	fslmaths $TDIR/masked_size -thr $VOXTHRESH $TDIR/masked_size_thr
+	fslmaths $TDIR/input_orig -mas $TDIR/masked_size_thr $TDIR/input_thr
+	miceconvert ${COLOR} $TDIR/input_thr.nii.gz  ${OUTNAME}.gt${VOXTHRESH}.mnc
+fi
+
+echo $LOGSTRING >> .`basename ${0}`.log
+
+#echo $TDIR; read
+rm -rf $TDIR
+exit 0
+
+
