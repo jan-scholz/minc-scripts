@@ -37,6 +37,11 @@ def readMeshFile(filename, clean=True, verbose=False):
     else:
         raise ValueError('cannot read input format: ' + informat)
     reader.SetFileName(filename)
+    reader.Update()
+
+    if verbose:
+        print "read %i polygons from file %s" % \
+                               (reader.GetOutput().GetNumberOfPolys(), filename)
 
     # merge duplicate points, and/or remove unused points and/or remove degenerate cells
     if clean:
