@@ -23,6 +23,8 @@ QUEUE="all.q,diddl.q"
 # use these when starting from non-lsq6 aligned brains
 ADDCMDS="-lsq6 -no-lsq6-large-rotations -no-registration-accuracy -cleanup -bootstrap-downsample-factor 1"
 
+INITMODEL=/axiom2/projects/software/initial-models/binb-model-invivo-p65-model-Leigh-90micron/p65_MEMRI_mouse_brain
+
 
 # default pipeline name (flat and root)
 DEFAULTPNAME=all
@@ -53,9 +55,8 @@ model_command ()
 	PIPENAME=$1; shift
 	ADD=$@
 
-    INITMODEL=/axiom2/projects/software/initial-models/binb-model-invivo-p65-model-Leigh-90micron/p65_MEMRI_mouse_brain
 	#PROTOCOL=/home/jscholz/resources/memri/mincANTS_nlin_protocol_live.pl
-	PROTOCOL=/home/jscholz/resources/registration/ANTS/mincANTS_nlin_protocol_live_saddel.pl    # 90 micron, 6GB
+	PROTOCOL=/home/jscholz/resources/registration/ANTS/mincANTS_nlin_protocol_live_saddel.pl
 	#LABELS=/home/jscholz/resources/memri/MEMRI_Atlas_Dec52012.mnc
 	#LABELS=/projects/mice/share/mouse-brain-atlases/Dorr_2008/in-vivo-MEMRI/Dorr_2008_on_in-vivo-MEMRI_version_2_WORK_IN_PROGRESS_labels.mnc
 	LABELS=/axiom2/projects/software/mouse-brain-atlases/Dorr_2008/in-vivo-MEMRI/Dorr_2008_on_in-vivo-MEMRI_version_2_WORK_IN_PROGRESS_labels.mnc
@@ -130,7 +131,7 @@ TMP=
 for ((i=0;i<$N;i++)); do
 	PNAME=${UNIQIDS[$i]}     # do not change this, will be used later
 
-    if [ -z "$BOOTSTRAP" ]; then
+    if [ ! -z "$BOOTSTRAP" ]; then
         echo -n "`model_command $PBASEHIER $PNAME $ADDCMDS -bootstrap-model $PBASEHIER/${PNAME}_bootstrap`" > $TMPDIR/${PNAME}.sh
     else
         echo -n "`model_command $PBASEHIER $PNAME $ADDCMDS -init-model $INITMODEL`" > $TMPDIR/${PNAME}.sh
@@ -163,7 +164,7 @@ PNAME=$DEFAULTPNAME
 N=${#UNIQIDS[*]}
 
 mkdir -p $ROOTPBASE
-if [ -z "$BOOTSTRAP" ]; then
+if [ ! -z "$BOOTSTRAP" ]; then
     echo -n "`model_command $ROOTPBASE $PNAME $ADDCMDS -bootstrap-model $ROOTPBASE/${PNAME}_bootstrap`" > $ROOTSCRIPT
 else
     echo -n "`model_command $ROOTPBASE $PNAME $ADDCMDS -init-model $INITMODEL $ROOTPBASE/${PNAME}_bootstrap`" > $ROOTSCRIPT
