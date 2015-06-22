@@ -1,0 +1,338 @@
+#!/bin/bash
+#
+# hierarchical registration of longitudinal data
+# jan.scholz@phenogenomics @ MICe, 2012-12-04
+#
+
+# TODO:
+#  - allow option to run on lsq6 input (might be better to do this step with the flat model, i.e. all brains)
+#    thus remove -lsq6 from mbm call if needed
+
+# flat registration
+# hierarchical registration on resampled/*-rigid.mnc
+# compare stats
+
+QUEUE="all.q,diddl.q"
+
+# add these commands to the base model_command string
+#HIERCMDS="-no-lsq6 -bootstrap-model ${ID[$i]}"
+
+# ADDCMDS should be an option? but what about bootstrap?
+# bootstrap-downsample-factor circumvents bug that resamples jacobians to half the resolution
+#ADDCMDS="-no-lsq6 -no-registration-accuracy -cleanup -bootstrap-downsample-factor 1"
+# use these when starting from non-lsq6 aligned brains
+ADDCMDS="-lsq6 -no-lsq6-large-rotations -no-registration-accuracy -cleanup -bootstrap-downsample-factor 1"
+
+
+# default pipeline name (flat and root)
+DEFAULTPNAME=all
+
+usage ()
+{
+	echo "Usage: $(basename $0) [-f|-h|-r] -o OUTBASE TABLE"
+	echo "  -o OUTBASE    basename of file containing MICe-build-model commands"
+	echo "  TABLE         association between file filename, id, and scan (time)"
+	echo "  "
+	echo "  -f            flat registration, all images to one template"
+	echo "  -h            hierarchical registration (1), generate (subject-specific templates)"
+	echo "  -r            hierarchical registration (2), generate (study-specific template)"
+	echo "  -x            hierarchical registration (3), resample jacobians to study-specific template"
+	echo "  -X JAC        like '-x', but requires jacobian suffix, default for '-x' is \"-log-determinant-fwhm0.1.mnc\""
+	echo
+	printf "run registration scripts from quarantine, e.g.:\n. /projects/mice/share/arch/linux64/quarantine_toothless/environment\n"
+}
+
+
+###############################################################################
+model_command ()
+{
+	PIPEBASE=$1; shift
+	PIPENAME=$1; shift
+	ADD=$@
+
+	#PROTOCOL=/home/jscholz/resources/memri/mincANTS_nlin_protocol_live.pl
+	PROTOCOL=/home/jscholz/resources/registration/ANTS/mincANTS_nlin_protocol_live_saddel.pl    # 90 micron, 6GB
+	#LABELS=/home/jscholz/resources/memri/MEMRI_Atlas_Dec52012.mnc
+	#LABELS=/projects/mice/share/mouse-brain-atlases/Dorr_2008/in-vivo-MEMRI/Dorr_2008_on_in-vivo-MEMRI_version_2_WORK_IN_PROGRESS_labels.mnc
+	LABELS=/axiom2/projects/software/mouse-brain-atlases/Dorr_2008/in-vivo-MEMRI/Dorr_2008_on_in-vivo-MEMRI_version_2_WORK_IN_PROGRESS_labels.mnc
+	#TEMPLATE=/projects/mice/share/mouse-brain-atlases/Dorr_2008/in-vivo-MEMRI/in-vivo-MEMRI_version_2_WORK_IN_PROGRESS_average.mnc
+	#TEMPLATE=/projects/mice/share/mouse-brain-atlases/Dorr_2008/in-vivo-MEMRI/Dorr_2008_on_in-vivo-MEMRI_version_2_WORK_IN_PROGRESS_average.mnc
+	TEMPLATE=/axiom2/projects/software/mouse-brain-atlases/Dorr_2008/in-vivo-MEMRI/Dorr_2008_on_in-vivo-MEMRI_version_2_WORK_IN_PROGRESS_average.mnc
+
+	for f in $PROTOCOL $LABELS $TEMPLATE; do
+		[ -f "$f" ] || { echo "ERROR: could not find file: $f" > /dev/stderr; exit 1; }
+	done
+
+
+	MBMCMD="MICe-build-model.pl -pipeline-base $PIPEBASE -pipeline-name $PIPENAME -sge -sge-queue $QUEUE -lsq6 -lsq12 -nlin-registration-method mincANTS -nlin-protocol $PROTOCOL -nlin -nlin-stats -classified-atlas $LABELS -anatomical-atlas $TEMPLATE -resample-atlas $ADD"
+
+	echo $MBMCMD
+}
+
+get_files ()
+{
+FILES=($(R --vanilla --slave -e "t <- read.csv('$TABLE',header=T); t <- subset(t,!is.na(filename)); cat(as.character(t\$filename),'\n');"))
+SCANS=($(R --vanilla --slave -e "t <- read.csv('$TABLE',header=T); t <- subset(t,!is.na(filename)); cat(as.character(t\$scan),'\n');"))
+IDS=($(R --vanilla --slave -e   "t <- read.csv('$TABLE',header=T); t <- subset(t,!is.na(filename)); cat(as.character(t\$id),'\n');"))
+UNIQIDS=($(echo ${IDS[*]} | tr ' ' '\n' | sort | uniq))
+
+mkdir -p origs
+
+M=${#FILES[*]}
+for ((i=0;i<$M;i++)); do
+	echo ${FILES[$i]}
+	[ -f "${FILES[$i]}" ] || { echo "ERROR: could not find file: ${FILES[$i]}" > /dev/stderr; exit 1; }
+	RENAME=origs/${IDS[$i]}_${SCANS[$i]}.mnc
+	if [ -e "$RENAME" ]; then
+		echo "Warning: file/link already exists, overwriting: $RENAME"
+	fi
+
+	# prefix '../' if relative path
+	if [ "${FILES[$i]:0:1}" = "/" ]; then
+		f=${FILES[$i]}
+	else
+		f=../${FILES[$i]}
+	fi
+	ln -sf $VERBOSE $f $RENAME
+
+	ORIGS="$ORIGS $RENAME"
+done
+ORIGS=($ORIGS)
+}
+
+flat_reg ()
+{
+SUFFIX=flat
+FLATSCRIPT="${OUTBASE}_${SUFFIX}.sh"
+PBASEFLAT=$PWD/$SUFFIX
+PNAME=$DEFAULTPNAME
+
+mkdir -p $PBASEFLAT
+echo -n "`model_command $PBASEFLAT $PNAME $ADDCMDS -bootstrap-model $PBASEFLAT/${PNAME}_bootstrap`" > $FLATSCRIPT
+echo    " ${ORIGS[*]}" >> $FLATSCRIPT && chmod 755 $FLATSCRIPT
+[ -z "$VERBOSE" ] || echo "saved $FLATSCRIPT"
+}
+
+hier_reg ()
+{
+SUFFIX=hier
+HIERSCRIPT="${OUTBASE}_${SUFFIX}.sh"
+PBASEHIER=$PWD/$SUFFIX
+N=${#UNIQIDS[*]}
+
+# for each id save build model command
+mkdir -p $PBASEHIER
+TMP=
+for ((i=0;i<$N;i++)); do
+	PNAME=${UNIQIDS[$i]}     # do not change this, will be used later
+	echo -n "`model_command $PBASEHIER $PNAME $ADDCMDS -bootstrap-model $PBASEHIER/${PNAME}_bootstrap`" > $TMPDIR/${PNAME}.sh
+	TMP="$TMP $TMPDIR/${UNIQIDS[$i]}.sh"
+done
+
+# add image files
+M=${#FILES[*]}
+for ((i=0;i<=$M;i++)); do
+	echo -n " ${ORIGS[$i]}" >> $TMPDIR/${IDS[$i]}.sh
+done
+
+# insert newlines
+sed -e '$s/$/\n/g' $TMP > $HIERSCRIPT && chmod 755 $HIERSCRIPT
+[ -z "$VERBOSE" ] || echo "saved $HIERSCRIPT"
+}
+
+hier_root_reg ()
+{
+# final (root) part of hierarchical registration
+# register subject-specific templates to study-specific template
+SUFFIX=hier
+PBASEHIER=$PWD/$SUFFIX
+ROOTSUFFIX=hier-root
+ROOTSCRIPT="${OUTBASE}_${ROOTSUFFIX}.sh"
+ROOTPBASE=$PWD/$ROOTSUFFIX
+PNAME=$DEFAULTPNAME
+N=${#UNIQIDS[*]}
+
+mkdir -p $ROOTPBASE
+echo -n "`model_command $ROOTPBASE $PNAME $ADDCMDS -bootstrap-model $ROOTPBASE/${PNAME}_bootstrap`" > $ROOTSCRIPT
+
+# aggregate nlin's
+TMP=
+for ((i=0;i<$N;i++)); do
+	NLIN=$PBASEHIER/${UNIQIDS[$i]}_nlin/nlin-3.mnc
+	[ -f "$NLIN" ] || { echo "Warning: could not find subject-specific template: $NLIN" > /dev/stderr; continue; }
+	ln -sf $VERBOSE $NLIN `dirname $NLIN`/${UNIQIDS[$i]}_nlin-3.mnc
+	TMP="$TMP $PBASEHIER/${UNIQIDS[$i]}_nlin/${UNIQIDS[$i]}_nlin-3.mnc"
+done
+
+echo " $TMP" >> $ROOTSCRIPT && chmod 755 $ROOTSCRIPT
+[ -z "$VERBOSE" ] || echo "saved $ROOTSCRIPT"
+}
+
+resample_jacobians ()
+{
+# when using the bootstrap option -lsq12 and -nlin xfm's need to be combined
+# to get the full registration from input to nlin-3
+# this registration is then used to resample the jacobians
+# (native or lsq12? -> subject-specific template) to the study-specific template
+
+# -trilinear -sinc
+INTERP=-trilinear
+
+JACSUFFIX=${1:-'-log-determinant-fwhm0.1.mnc'}
+[ ${#JACSUFFIX} -eq 3 ] && JACSUFFIX="-log-determinant-fwhm${1}.mnc"
+SUFFIX=hier
+PBASEHIER=$PWD/$SUFFIX
+RESAMPSCRIPT="${OUTBASE}_hier-resamp.sh"; > $RESAMPSCRIPT
+PNAME=$DEFAULTPNAME
+ROOTSUFFIX=hier-root
+ROOTPBASE=$PWD/$ROOTSUFFIX
+ROOTNLIN=$ROOTPBASE/${PNAME}_nlin/nlin-3.mnc
+[ -f "$ROOTNLIN" ] || { echo "ERROR: could not find root nlin: $ROOTNLIN"; exit 1; }
+N=${#UNIQIDS[*]}
+
+
+for ((i=0;i<$N;i++)); do
+	JACS=$PBASEHIER/${UNIQIDS[$i]}_processed/${UNIQIDS[$i]}_*/stats-volumes/${UNIQIDS[$i]}*${JACSUFFIX}
+
+	XFMBASE=$ROOTPBASE/${PNAME}_processed/${UNIQIDS[$i]}_nlin-3/transforms/${UNIQIDS[$i]}_nlin-3
+	XFM1=${XFMBASE}-avg-lsq12.xfm
+	XFM2=${XFMBASE}-final-nlin.xfm
+	XFMOUT=${XFM2/-final-nlin.xfm/-to-root.xfm}
+
+	[ -f "$XFM1" ] || { echo "Warning: could not find transformation: $XFM1" > /dev/stderr; continue; }
+	[ -f "$XFM2" ] || { echo "Warning: could not find transformation: $XFM2" > /dev/stderr; continue; }
+	echo -n "xfmconcat -clobber $XFM1 $XFM2 $XFMOUT; " >> $RESAMPSCRIPT
+
+	for g in $JACS; do
+		[ -f "$g" ] || { echo "ERROR: could not find jacobian: $g"; exit 1; }
+		echo -n "mincresample -clobber -2 -quiet $INTERP -transformation $XFMOUT -like $ROOTNLIN $g ${g/-log-determinant/-to-root-log-determinant}; " >> $RESAMPSCRIPT && chmod 755 $RESAMPSCRIPT
+	done
+
+ 	echo >> $RESAMPSCRIPT
+
+done
+
+
+
+
+}
+
+###############################################################################
+# MAIN
+###############################################################################
+echo "`basename $0` $@ # `date`" >> .`basename $0`.log
+
+while getopts o:fhrxX:v opt
+do
+	case "$opt" in
+		o)  OUTBASE="$OPTARG";;
+		f)  FLATREG=1;;
+		h)  HIERREG=1;;
+		r)  ROOTREG=1;;
+		x)  GETJACS=1;;
+		X)  GETJACS=1; JAC="$OPTARG";;
+		v)  VERBOSE="-v";;
+		\?)  usage; exit 1;;
+	esac
+done
+shift $(expr $OPTIND - 1)
+
+
+[ $# -lt 1 ] && { usage; exit 1; }
+[ -z "$TMPDIR" ] && { echo "ERROR: \$TMPDIR not set"; exit 1; }
+
+[ -z "$OUTBASE" ] && { echo "ERROR: OUTBASE not specified"; exit 1; }
+
+TABLE=$1
+[ -f "$TABLE" ] || { echo "ERROR: could not find table"; exit 1; }
+
+# check that table contains necessary columns
+R --vanilla --slave -e "t <- read.csv('$TABLE',header=T); if (!('id' %in% colnames(t) && 'filename' %in% colnames(t) && 'scan' %in% colnames(t))) quit(status=1)" || { echo "ERROR: TABLE does not contain all necessary columns"; exit 1; }
+
+
+get_files
+
+[ -z "$FLATREG" ] || flat_reg
+[ -z "$HIERREG" ] || hier_reg
+[ -z "$ROOTREG" ] || hier_root_reg
+[ -z "$GETJACS" ] || resample_jacobians $JAC
+
+exit 0
+
+
+
+
+################################################################################
+## assemble subject-specific transformation (-lsq12 + -nlin)
+## this transforms input to subject-specific template
+##
+## then resample this jacobian to study-specific template
+## again use the assembled transformation?
+#
+#JACSUFFIX=-log-determinant-fwhm0.1.mnc
+#
+#RESAMPSCRIPT="${OUTBASE}_resample.sh"
+#> $RESAMPSCRIPT
+#
+#for ((i=0;i<$N;i++)); do
+#	JAC=$PBASEHIER/${UNIQIDS[$i]}_processed/${UNIQIDS[$i]}_*/stats-volumes/${UNIQIDS[$i]}${JACSUFFIX}
+#
+#	XFMBASE=$PBASEROOT/${ROOTPNAME}_processed/${UNIQIDS[$i]}_nlin-3/transforms/${UNIQIDS[$i]}_nlin-3
+#	XFM1=${XFMBASE}-avg-lsq12.xfm
+#	XFM2=${XFMBASE}-final-nlin.xfm
+#	XFMOUT=${g/-final-nlin.xfm/-to-root.xfm}
+#	[ -f "$XFM1" -a -f "$XFM2" ] || { echo "Warning: could not find transformation: $x" > /dev/stderr; continue; }
+#	echo "xfmconcat $XFM1 $XFM2 $XFMOUT" >> $RESAMPSCRIPT
+#
+#	for g in ${JAC}; do
+#
+#	done
+#
+#done
+
+
+
+
+
+#xfmconcat hier/Exp1_10_processed/Exp1_10_1/transforms/Exp1_10_1-avg-lsq12.xfm hier/Exp1_10_processed/Exp1_10_1/transforms/Exp1_10_1-final-nlin.xfm Exp1_10-all.xfm
+#-avg-lsq12.xfm
+#-final-nlin.xfm
+
+# transform xfm to vector field (bounding box from input.mnc)
+# minc_displacement [options] input.mnc input.xfm output_grid.mnc
+
+# get jacobian
+# /micehome/jlerch/src/displacement_determinant.pl -fwhm 0.1
+
+
+
+
+
+###############################################################################
+# concatenate transformations to get from leaf to root
+#ROOTSCRIPT="${OUTBASE}_xfmconcat.sh"
+#> $ROOTSCRIPT
+#
+#for ((i=0;i<$N;i++)); do
+#	WITHINBASE=$PBASEHIER/${UNIQIDS[$i]}_processed/${UNIQIDS[$i]}_*/transforms/${UNIQIDS[$i]}_
+#	BETWEENBASE=$PBASEROOT/${ROOTPNAME}_processed/${UNIQIDS[$i]}_nlin-3/transforms/${UNIQIDS[$i]}_nlin-3
+#
+#	for g in ${WITHINBASE}*-final-nlin.xfm; do
+#
+#		XFM1=${g/-final-nlin.xfm/-avg-lsq12.xfm}
+#		XFM2=${g}
+#		XFM3=${BETWEENBASE}-avg-lsq12.xfm
+#		XFM4=${BETWEENBASE}-final-nlin.xfm
+#		XFMOUT=${g/-final-nlin.xfm/-to-root.xfm}
+#
+#		for x in $XFM1 $XFM2 $XFM3 $XFM4; do
+#			[ -f "$x" ] || { echo "Warning: could not find transformation: $x" > /dev/stderr; continue; }
+#		done
+#
+#		echo "xfmconcat $XFM1 $XFM2 $XFM3 $XFM4 $XFMOUT" >> $ROOTSCRIPT
+#
+#	done
+#done
+#
+
+
