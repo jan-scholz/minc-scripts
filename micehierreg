@@ -37,6 +37,9 @@ usage ()
 	echo "  -h            hierarchical registration (1), generate (subject-specific templates)"
 	echo "  -r            hierarchical registration (2), generate (study-specific template)"
 	echo "  -x            hierarchical registration (3), resample jacobians to study-specific template"
+    echo
+    echo "  -b            bootstrap"
+    echo
 	echo "  -X JAC        like '-x', but requires jacobian suffix, default for '-x' is \"-log-determinant-fwhm0.1.mnc\""
 	echo
 	printf "run registration scripts from quarantine, e.g.:\n. /projects/mice/share/arch/linux64/quarantine_toothless/environment\n"
@@ -50,6 +53,7 @@ model_command ()
 	PIPENAME=$1; shift
 	ADD=$@
 
+    INITMODEL=/axiom2/projects/software/initial-models/binb-model-invivo-p65-model-Leigh-90micron/p65_MEMRI_mouse_brain
 	#PROTOCOL=/home/jscholz/resources/memri/mincANTS_nlin_protocol_live.pl
 	PROTOCOL=/home/jscholz/resources/registration/ANTS/mincANTS_nlin_protocol_live_saddel.pl    # 90 micron, 6GB
 	#LABELS=/home/jscholz/resources/memri/MEMRI_Atlas_Dec52012.mnc
@@ -125,7 +129,13 @@ mkdir -p $PBASEHIER
 TMP=
 for ((i=0;i<$N;i++)); do
 	PNAME=${UNIQIDS[$i]}     # do not change this, will be used later
-	echo -n "`model_command $PBASEHIER $PNAME $ADDCMDS -bootstrap-model $PBASEHIER/${PNAME}_bootstrap`" > $TMPDIR/${PNAME}.sh
+
+    if [ -z "$BOOTSTRAP" ]; then
+        echo -n "`model_command $PBASEHIER $PNAME $ADDCMDS -bootstrap-model $PBASEHIER/${PNAME}_bootstrap`" > $TMPDIR/${PNAME}.sh
+    else
+        echo -n "`model_command $PBASEHIER $PNAME $ADDCMDS -init-model $INITMODEL`" > $TMPDIR/${PNAME}.sh
+    fi
+
 	TMP="$TMP $TMPDIR/${UNIQIDS[$i]}.sh"
 done
 
@@ -153,7 +163,11 @@ PNAME=$DEFAULTPNAME
 N=${#UNIQIDS[*]}
 
 mkdir -p $ROOTPBASE
-echo -n "`model_command $ROOTPBASE $PNAME $ADDCMDS -bootstrap-model $ROOTPBASE/${PNAME}_bootstrap`" > $ROOTSCRIPT
+if [ -z "$BOOTSTRAP" ]; then
+    echo -n "`model_command $ROOTPBASE $PNAME $ADDCMDS -bootstrap-model $ROOTPBASE/${PNAME}_bootstrap`" > $ROOTSCRIPT
+else
+    echo -n "`model_command $ROOTPBASE $PNAME $ADDCMDS -init-model $INITMODEL $ROOTPBASE/${PNAME}_bootstrap`" > $ROOTSCRIPT
+fi
 
 # aggregate nlin's
 TMP=
@@ -222,13 +236,14 @@ done
 ###############################################################################
 echo "`basename $0` $@ # `date`" >> .`basename $0`.log
 
-while getopts o:fhrxX:v opt
+while getopts o:fhrbxX:v opt
 do
 	case "$opt" in
 		o)  OUTBASE="$OPTARG";;
 		f)  FLATREG=1;;
 		h)  HIERREG=1;;
 		r)  ROOTREG=1;;
+        b)  BOOTSTRAP=1;;
 		x)  GETJACS=1;;
 		X)  GETJACS=1; JAC="$OPTARG";;
 		v)  VERBOSE="-v";;
