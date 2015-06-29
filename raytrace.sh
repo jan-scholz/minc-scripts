@@ -24,14 +24,16 @@ usage ()
 	echo "  -o OUTBASE          basename of output, coordinates get appended "
 	echo "  STAT1 THRESH1       pairs of statistical overlay maps with associated (lower) threshold"
 }
-ycoord_to_png ()
+
+coord_to_png ()
 {
 	NPIXELS=600
 	OUTXDIM=`python -c "print ${NPIXELS}.0/(5/3.0)"`
 	OUTYDIM=`python -c "print ${NPIXELS}.0/2.0"`
 	#echo output image dimensions: $OUTXDIM x $OUTYDIM
 
-	ADD="-size $NPIXELS $NPIXELS -bg green -front -sup 1"   # sup > 1 gives green seems !!!
+    # removed -front because that doesn't work with direciton != y
+	ADD="-size $NPIXELS $NPIXELS -bg green -sup 1"   # sup > 1 gives green seems !!!
 	COORDS=`python -c "print ' '.join(['%.3f' % (${1}+i*0.056) for i in range(-1,2)])"`
 
 	for COORD in $COORDS; do
@@ -109,7 +111,7 @@ ycoord_to_png ()
 # MAIN
 ###############################################################################
 
-while getopts b:B:l:s:T:o:v opt
+while getopts b:B:l:s:T:o:d:v opt
 do
 	case "$opt" in
 		b)  BGFILE="$OPTARG";;
@@ -120,6 +122,7 @@ do
 		#t)  LOWERTHRESH="$OPTARG";;
 		T)  UPPERTHRESH="$OPTARG";;
 		o)  OUTBASE="$OPTARG";;
+		d)  DIRECTION="$OPTARG";;
 		v)  VERBOSE=1;;
 		\?)  usage; exit 1;;
 	esac
@@ -143,7 +146,6 @@ if [ -z "$BGTHRESH" ]; then
     P=(`mincstats -quiet -mean -stddev $BGFILE`)
     BGTHRESH=`python -c "print int(max(${P[0]} - 2*${P[1]},0)), int(max(${P[0]} + 2*${P[1]},1))"`
 fi
-echo $BGTHRESH > /tmp/foo.txt
 
 
 ARGS=($@)
@@ -153,12 +155,14 @@ mkdir -p $TDIR
 trap "{ rm -fr $TDIR; echo 'cleaned up temp. directory'; exit 255; }" SIGINT SIGTERM
 
 
-while read YCOORD; do
-	ycoord_to_png $YCOORD
+while read COORD; do
+	coord_to_png $COORD
 done
 
+# echo $TDIR
+# read
 
-rm -rf $TDIR
+#rm -rf $TDIR
 exit 0
 
 
