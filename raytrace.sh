@@ -99,24 +99,24 @@ coord_to_png ()
 		
 		composite ${OBASE}_stat.png ${OBASE}_bg.png ${OBASE}_stat_mask.png ${OBASE}_stat_on_rest.png
 
-
-        ZDIM=`mincinfo -dimlength zspace $BGFILE`
-        YDIM=`mincinfo -dimlength yspace $BGFILE`
-        XDIM=`mincinfo -dimlength xspace $BGFILE`
+        #DIM=(`mincbbox $BGFILE | awk '{print $6, $5, $4}'`)
+        DIM=(`mincbbox $BGFILE | awk '{print $4, $5, $6}'`)
+        FACT=1.75
 
         if [ $DIRECTION = x ]; then
-            OUTXDIM=`python -c "print ${NPIXELS}.0*0.85"`
-            OUTYDIM=`python -c "print ${NPIXELS}.0*${ZDIM}/${YDIM}*0.85"`
+            WIDTH=`python -c "print int(${DIM[1]}/0.056*$FACT)"`
+            HEIGHT=`python -c "print int(${DIM[2]}/0.056*$FACT)"`
         fi
         if [ $DIRECTION = y ]; then
-            OUTXDIM=`python -c "print ${NPIXELS}.0*0.85"`
-            OUTYDIM=`python -c "print ${NPIXELS}.0*${ZDIM}/${XDIM}*0.85"`
+            WIDTH=`python -c "print int(${DIM[0]}/0.056*$FACT)"`
+            HEIGHT=`python -c "print int(${DIM[2]}/0.056*$FACT)"`
         fi
         if [ $DIRECTION = z ]; then
-            OUTXDIM=`python -c "print ${NPIXELS}.0*${XDIM}/${YDIM}*0.85"`
-            OUTYDIM=`python -c "print ${NPIXELS}.0*0.85"`
+            WIDTH=`python -c "print int(${DIM[0]}/0.056*$FACT)"`
+            HEIGHT=`python -c "print int(${DIM[1]}/0.056*$FACT)"`
         fi
-        convert -gravity Center -crop ${OUTXDIM}x${OUTYDIM}+0+0 +repage ${OBASE}_stat_on_rest.png ${OUTBASE}${SUFF}.png
+        #convert -gravity Center -crop ${OUTXDIM}x${OUTYDIM}+0+0 +repage ${OBASE}_stat_on_rest.png ${OUTBASE}${SUFF}.png
+        convert ${OBASE}_stat_on_rest.png -fuzz 1% -trim -gravity center -extent ${WIDTH}x${HEIGHT} ${OUTBASE}${SUFF}.png
         
 	done
 	echo
