@@ -13,6 +13,7 @@ POSCC=(hotred_new  cc_green cc_yellow cc_brown)
 NEGCC=(hotblue_new cc_brown cc_brown)
 LOWERTHRESH=0
 UPPERTHRESH=1
+NPIXELS=600
 
 usage ()
 {
@@ -27,9 +28,6 @@ usage ()
 
 coord_to_png ()
 {
-	NPIXELS=600
-	OUTXDIM=`python -c "print ${NPIXELS}.0/(5/3.0)"`
-	OUTYDIM=`python -c "print ${NPIXELS}.0/2.0"`
 	#echo output image dimensions: $OUTXDIM x $OUTYDIM
 
     # removed -front because that doesn't work with direciton != y
@@ -100,8 +98,26 @@ coord_to_png ()
 		fi
 		
 		composite ${OBASE}_stat.png ${OBASE}_bg.png ${OBASE}_stat_mask.png ${OBASE}_stat_on_rest.png
-		convert -gravity Center -crop ${OUTXDIM}x${OUTYDIM}+0+0 +repage ${OBASE}_stat_on_rest.png ${OUTBASE}${SUFF}.png
 
+
+        ZDIM=`mincinfo -dimlength zspace $BGFILE`
+        YDIM=`mincinfo -dimlength yspace $BGFILE`
+        XDIM=`mincinfo -dimlength xspace $BGFILE`
+
+        if [ $DIRECTION = x ]; then
+            OUTXDIM=`python -c "print ${NPIXELS}.0*0.85"`
+            OUTYDIM=`python -c "print ${NPIXELS}.0*${ZDIM}/${YDIM}*0.85"`
+        fi
+        if [ $DIRECTION = y ]; then
+            OUTXDIM=`python -c "print ${NPIXELS}.0*0.85"`
+            OUTYDIM=`python -c "print ${NPIXELS}.0*${ZDIM}/${XDIM}*0.85"`
+        fi
+        if [ $DIRECTION = z ]; then
+            OUTXDIM=`python -c "print ${NPIXELS}.0*${XDIM}/${YDIM}*0.85"`
+            OUTYDIM=`python -c "print ${NPIXELS}.0*0.85"`
+        fi
+        convert -gravity Center -crop ${OUTXDIM}x${OUTYDIM}+0+0 +repage ${OBASE}_stat_on_rest.png ${OUTBASE}${SUFF}.png
+        
 	done
 	echo
 }
@@ -162,7 +178,7 @@ done
 # echo $TDIR
 # read
 
-#rm -rf $TDIR
+rm -rf $TDIR
 exit 0
 
 
