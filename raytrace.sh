@@ -18,6 +18,7 @@ usage ()
 {
 	echo "Usage: cat coords.txt | $(basename $0) -b BGFILE -l LABELS -s SURFACE -o OUTBASE  STAT1 THRESH1.."
 	echo "  -b BGFILE           background "
+	echo "  -B BGTHRESH         threshold for background "
 	echo "  -l LABELS           labels  "
 	echo "  -s SURFACE          surfaces, i.e. outline "
 	echo "  -o OUTBASE          basename of output, coordinates get appended "
@@ -54,7 +55,7 @@ ycoord_to_png ()
 		###############################################################################
 		# BACKGROUND
 		###############################################################################
-		ray_trace -output ${OBASE}_bg.rgb -under transparent -gray 100 1300 $BGFILE 2 1 ${OBASE}.obj $ADD
+		ray_trace -output ${OBASE}_bg.rgb -under transparent -gray $BGTHRESH $BGFILE 2 1 ${OBASE}.obj $ADD
 
 		###############################################################################
 		# LABELS
@@ -108,10 +109,11 @@ ycoord_to_png ()
 # MAIN
 ###############################################################################
 
-while getopts b:l:s:T:o:v opt
+while getopts b:B:l:s:T:o:v opt
 do
 	case "$opt" in
 		b)  BGFILE="$OPTARG";;
+		B)  BGTHRESH="$OPTARG";;
 		l)  LABELS="$OPTARG";;
 		s)  LABELSURFS="$OPTARG";;
 		#i)  STATS="$OPTARG";;
@@ -135,6 +137,13 @@ shift $(expr $OPTIND - 1)
 for f in $LABELSCC ${POSCC[@]} ${NEGCC[@]}; do
 	[ -f "$f" ] || { echo "ERROR: could not find file: $f"; exit 1; }
 done
+
+
+if [ -z "$BGTHRESH" ]; then
+    P=(`mincstats -quiet -mean -stddev $BGFILE`)
+    BGTHRESH=`python -c "print int(max(${P[0]} - 2*${P[1]},0)), int(max(${P[0]} + 2*${P[1]},1))"`
+fi
+echo $BGTHRESH > /tmp/foo.txt
 
 
 ARGS=($@)
