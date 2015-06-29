@@ -21,7 +21,7 @@ QUEUE="all.q,diddl.q"
 # bootstrap-downsample-factor circumvents bug that resamples jacobians to half the resolution
 #ADDCMDS="-no-lsq6 -no-registration-accuracy -cleanup -bootstrap-downsample-factor 1"
 # use these when starting from non-lsq6 aligned brains
-ADDCMDS="-lsq6 -no-lsq6-large-rotations -no-registration-accuracy -cleanup -bootstrap-downsample-factor 1"
+ADDCMDS="-lsq6 -no-lsq6-large-rotations -no-registration-accuracy -cleanup -bootstrap-downsample-factor 1 -lsq6-kernels 1_blur,0.5_dxyz,0.25_blur"
 
 INITMODEL=/axiom2/projects/software/initial-models/binb-model-invivo-p65-model-Leigh-90micron/p65_MEMRI_mouse_brain
 
@@ -167,7 +167,7 @@ mkdir -p $ROOTPBASE
 if [ ! -z "$BOOTSTRAP" ]; then
     echo -n "`model_command $ROOTPBASE $PNAME $ADDCMDS -bootstrap-model $ROOTPBASE/${PNAME}_bootstrap`" > $ROOTSCRIPT
 else
-    echo -n "`model_command $ROOTPBASE $PNAME $ADDCMDS -init-model $INITMODEL $ROOTPBASE/${PNAME}_bootstrap`" > $ROOTSCRIPT
+    echo -n "`model_command $ROOTPBASE $PNAME $ADDCMDS -init-model $INITMODEL`" > $ROOTSCRIPT
 fi
 
 # aggregate nlin's
