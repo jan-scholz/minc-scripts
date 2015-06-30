@@ -101,7 +101,7 @@ coord_to_png ()
 
         #DIM=(`mincbbox $BGFILE | awk '{print $6, $5, $4}'`)
         DIM=(`mincbbox $BGFILE | awk '{print $4, $5, $6}'`)
-        FACT=1.75
+        FACT=2.2
 
         if [ $DIRECTION = x ]; then
             WIDTH=`python -c "print int(${DIM[1]}/0.056*$FACT)"`
