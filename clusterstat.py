@@ -3,13 +3,13 @@
 # author: jan.scholz@mouseimaging.ca @ MICe, SickKids, Toronto, Canada
 # original version: 2015-06-10
 
+import sys
+from os import path
 from optparse import OptionParser,OptionGroup
 from pyminc.volumes.factory import *
-from scipy import ndimage,stats
 import numpy as np
-from os import path
-import sys
 import numpy.ma as ma    # masked arrays
+from scipy import ndimage,stats
 import pandas as pd      # csv files
 import pprint
 
@@ -44,7 +44,7 @@ def readImages(df, maskarray, filenamecolumn='filename', verbose=False):
 
 
 def createLabelVol(ar, outname, likefilename, verbose=False):
-    """saves label volume to disk and returns it"""
+    """create label volume from array ar, saves it to disk and returns it"""
     outlabels = volumeLikeFile(likefilename, outname, dtype='ushort',
                                             volumeType="ushort", labels=True)
     outlabels.data = ar
@@ -56,141 +56,112 @@ def createLabelVol(ar, outname, likefilename, verbose=False):
 
 
 def labeled_volume(filename, threshold, outname, maskarray, verbose=False):
-    """ .. """
+    """ threshold volume from filename
+    threshold is (a,b), such that <= a and >= b are kept if within maskarray"""
     if len(threshold) < 2 or threshold[0] > threshold[1]:
         raise ValueError('Threshold is not an ordered tuple')
     if verbose:
         print "thresholding with", threshold
     invol = volumeFromFile(filename)
-
     # threshold  (set outside threshold(s) and mask to zero)
     threshvol = invol.data.copy()
-    threshvol[((invol.data >= threshold[0])
-              & (invol.data <= threshold[1]))
+    threshvol[((invol.data > threshold[0])
+              & (invol.data < threshold[1]))
               | (~maskarray) ] = 0.0
     # connected components labelling
     cluster_array, num_features = ndimage.label(threshvol)
     if verbose:
         print "found", num_features, "clusters"
-    clustervol = createLabelVol(cluster_array, outname, likefilename=filename,
-                                                                verbose=verbose)
+    clustervol = createLabelVol(cluster_array, outname, likefilename=filename, verbose=verbose)
     return clustervol
 
 
-def peak_volume(filename, threshold, outname, maskarray, smoothing_sigma=1.0,
-                min_peakdist=2, verbose=False):
-    """ max_peakdist in voxels """
-    if len(threshold) < 2 or threshold[0] > threshold[1]:
-        raise ValueError('Threshold is not an ordered tuple')
-    invol = volumeFromFile(filename)
-
-    if verbose:
-        print "smoothing with sigma of", smoothing_sigma
-    smoothdata = ndimage.filters.gaussian_filter(invol.data, smoothing_sigma)
-
-    if verbose:
-        print "thresholding with", threshold
-    # threshold  (set outside threshold(s) and mask to zero)
-    threshmask = (((invol.data >= threshold[0])
-                 & (invol.data <= threshold[1]))
-                 | (~maskarray))
-
-    smoothdata = ma.array(smoothdata, mask=threshmask)
-
-    max_img = ndimage.maximum_filter(smoothdata, size=min_peakdist*2, mode='constant')
-    min_img = ndimage.minimum_filter(smoothdata, size=min_peakdist*2, mode='constant')
-
-    print max_img.shape, max_img.dtype, np.max(max_img), np.min(max_img)
-
-    print threshmask[46,205:215,76:80]
-    print smoothdata[46,205:215,76:80]
-    print max_img[46,205:215,76:80]
-
-    # Comparison between image_max and im to find the coordinates of local maxima
-    local_max_img = (smoothdata==max_img)
-    local_min_img = smoothdata==min_img
-
-    #print np.sum(local_min_img)/(152.0*320*225)
-
-    #if verbose:
-    #    print "thresholding with", threshold
-    ## threshold  (set outside threshold(s) and mask to zero)
-    #threshmask = (((invol.data >= threshold[0])
-    #             & (invol.data <= threshold[1]))
-    #             | (~maskarray))
-    #smoothdata[threshmask] = 0.0
-
-    # connected components labelling
-    #cluster_array, num_features = ndimage.label(threshvol)
-    #if verbose:
-    #    print "found", num_features, "clusters"
-
-    outlabels = volumeLikeFile(filename, 'foo_localextreme.mnc')
-    #, dtype='ushort', volumeType="ushort", labels=True)
-    #outlabels.data = threshmask.astype('float')
-    #outlabels.data = smoothdata
-    outlabels.data = max_img.astype('float')
-    outlabels.writeFile()
-    outlabels.closeVolume()
-
-    #clustervol = createLabelVol(cluster_array, outname, likefilename=filename, verbose=verbose)
-    return smoothdata
-
-
-def getCoG(labelvol, labelvalue, unitstring=' (mm)', verbose=False):
+def getCoG(labelvol, labelvalue, maskarray=None, verbose=False):
     """returns dictionary with centre of gravity in world and voxel coordinates"""
-    cog = ndimage.measurements.center_of_mass(labelvol.data==labelvalue)
-    #cog = (0,0,0)
-    cog_mm = labelvol.getStarts() + np.array(cog)*labelvol.getSeparations()
-    dims = labelvol.getDimensionNames()
-    tmp = {'voxelcoords':zip(dims,cog),
-           'worldcoords':zip([e+unitstring for e in dims],cog_mm)}
-    return tmp
+    labeldata = np.array(labelvol.data)==labelvalue
+    if not isinstance(maskarray, type(None)):
+        labeldata[~maskarray] = False
+    # cast as np array since centre of mass doesn't like memory mapped arrays
+    cog = ndimage.measurements.center_of_mass(labeldata)
+    return cog
 
 
-def getValues(labelvol, labelvalue, vols, df, idcolumn, maskarray,
-              peakvolname=None, verbose=False):
-    """get values from vols, pandas data frame df"""
-    m = labelvol.data[maskarray]==labelvalue
+def vox2world(coord, likevol):
+    """transform voxel to world coordinates"""
+    return likevol.getStarts() + np.array(coord)*likevol.getSeparations()
+
+
+def addCoordColumns(df, coord, columnname, dimnames, sep='-'):
+    """add a column for each coordinate with suffix of likevol's dimnames"""
+    for i,dim in enumerate(dimnames):
+        c = columnname + sep + dim
+        df[c] = coord[i]
+
+
+def getValues(vols, labelvol, labelvalue, ids, maskarray=None, verbose=False):
+    """Extract series of values from vols where labelvol equals labelvalue."""
     # requires vols to be pre-masked with maskarray!!!
-    bar = np.sum(vols*m, axis=1) / np.sum(m)
-
-    if idcolumn:
-        ids = df[idcolumn].values
-    else:
-        ids = [str(i+1) for i in range(len(df))]
-        idcolumn = 'id'
-
-    dftmp = pd.DataFrame({
-         idcolumn : ids
-        ,'value' : bar
+    m = labelvol.data[maskarray]==labelvalue
+    meanvalues = np.sum(vols*m, axis=1) / np.sum(m)
+    df = pd.DataFrame({
+         'id'    : ids
+        ,'value' : meanvalues
     })
+    return df
 
-    if peakvolname:
-        print 'label value', labelvalue
-        labelmask = (labelvol.data==labelvalue) & maskarray
-        peakvol = volumeFromFile(peakvolname)
 
-        # returns first extreme
-        maxvoxidx = np.unravel_index(ma.array(peakvol.data, mask=labelmask).argmax(),
-                                   peakvol.data.shape)
-        minvoxidx = np.unravel_index(ma.array(peakvol.data, mask=labelmask).argmin(),
-                                   peakvol.data.shape)
+def getPeakValues(vols, peakvolname, labelvol, labelvalue, ids,
+                  maskarray=None, smoothing_sigma=None, verbose=False):
+    """Extract series of values from vols where labelvol equals labelvalue.
+    The panda data frame df provides the ID's.
+    peak values are extracted based on peaks in peakvolume """
 
-        maxidx = peakvol.getStarts() + np.array(maxvoxidx)*peakvol.getSeparations()
-        minidx = peakvol.getStarts() + np.array(minvoxidx)*peakvol.getSeparations()
+    labelmask = (labelvol.data==labelvalue) & maskarray
+    peakvol = volumeFromFile(peakvolname)
 
-        if verbose: print 'peak voxel maximum', maxidx, peakvol.data[maxvoxidx]
-        if verbose: print 'peak voxel minimum', minidx, peakvol.data[minvoxidx]
+    if smoothing_sigma:
+        peakvol.data = ndimage.filters.gaussian_filter(peakvol.data, smoothing_sigma)
+        if verbose:
+            print "peak estimation: smoothing with sigma of", smoothing_sigma
 
-        dftmp['max_value'] = pd.Series([peakvol.data[maxvoxidx]], index=dftmp.index)
-        dftmp['max_location'] = pd.Series([maxvoxidx],            index=dftmp.index)
-        dftmp['max_location (mm)'] = pd.Series([maxidx],          index=dftmp.index)
-        dftmp['min_value'] = pd.Series([peakvol.data[minvoxidx]], index=dftmp.index)
-        dftmp['min_location'] = pd.Series([minvoxidx],            index=dftmp.index)
-        dftmp['min_location (mm)'] = pd.Series([minidx],          index=dftmp.index)
+    # returns index of first extreme (regions where mask is True get masked/removed!)
+    maxlinidx = ma.array(peakvol.data, mask=~labelmask).argmax()
+    minlinidx = ma.array(peakvol.data, mask=~labelmask).argmin()
 
-    return dftmp
+    fullidx = np.arange(peakvol.data.size).reshape(peakvol.data.shape)[maskarray]
+    maxmaskidx = np.where(fullidx==maxlinidx)[0][0]
+    minmaskidx = np.where(fullidx==minlinidx)[0][0]
+
+    # returns first extreme (regions where mask is True get masked/removed!)
+    peakidx = {
+          'max' : np.unravel_index(maxlinidx, peakvol.data.shape)
+        , 'min' : np.unravel_index(minlinidx, peakvol.data.shape)
+    }
+
+    peakvals = {
+          'max' : vols[:,maxmaskidx]
+        , 'min' : vols[:,minmaskidx]
+    }
+
+    df = pd.DataFrame()
+    for extreme in ['max', 'min']:
+        df2 = pd.DataFrame({
+                'id' : ids
+            , 'value' : peakvals[extreme]
+            , 'peakvalue' : peakvol.data[peakidx[extreme]]
+            , 'peaktype' : extreme
+        })
+        addCoordColumns(df2,           peakidx[extreme] , 'cog_vox',
+                        dimnames=labelvol.dimnames)
+        addCoordColumns(df2, vox2world(peakidx[extreme], likevol=peakvol), 'cog_mm' ,
+                        dimnames=labelvol.dimnames)
+        df = pd.concat([df,  df2], ignore_index=True)
+
+    df['nvoxels'] = 1.0
+    df['volume']  = 1.0*np.prod(peakvol.getSeparations())
+    df['type']  = 'peak'
+
+    return df
 
 
 def clusterstats(vols, labelvol, df, maskarray, atlasname, defsname, voxelthresh,
@@ -210,50 +181,52 @@ def clusterstats(vols, labelvol, df, maskarray, atlasname, defsname, voxelthresh
             continue
         if verbose:
             print 'processing cluster index', i
+
         # get values averages across cluster
-        dfcluster = getValues(labelvol, i, vols, df, idcolumn, maskarray,
-                              peakvolname=statsvolname, verbose=verbose)
-        dfcluster.rename(columns={'value': 'cluster'}, inplace=True)
+        dftmp = getValues(vols, labelvol, i, df[idcolumn].values, maskarray, verbose=verbose)
+        dftmp['nvoxels'] = nvoxels_cluster
+        dftmp['volume']  = nvoxels_cluster*voxelvolume
+        dftmp['type']  = 'cluster'
 
-        dfcluster = pd.concat([dfcluster,
-            pd.DataFrame({
-                 'cluster_index'   : [i]
-                ,'nvoxels_cluster' : [nvoxels_cluster]
-                ,'volume_cluster'  : [nvoxels_cluster*voxelvolume]
-                #,'type'            : ['cluster']
-            }, index=dfcluster.index)], axis=1)
-
+        # add CoG
         cog = getCoG(labelvol, i, verbose=verbose)
-        for k,v in dict(cog['voxelcoords']).iteritems():
-            # replicates single values row-wise
-            dfcluster[k] = pd.Series([v], index=dfcluster.index)
-        for k,v in dict(cog['worldcoords']).iteritems():
-            dfcluster[k] = pd.Series([v], index=dfcluster.index)
+        addCoordColumns(dftmp, cog, 'cog_vox', dimnames=labelvol.dimnames)
+        addCoordColumns(dftmp, vox2world(cog, likevol=labelvol), 'cog_mm',
+                        dimnames=labelvol.dimnames)
 
         # for enclosing structure
         if atlasname and defsname:
-            # zip combines all first/second tuple elements into seperate tuples
-            structure_name, labelvalue = coord_to_structure(zip(*cog['voxelcoords'])[1],
-                           atlasvol, defs, verbose=verbose)
-            nvoxels_label = np.sum(atlasvol.data[(maskarray) &
-                                                 (atlasvol.data==labelvalue)])
+            # enclosing structure based on CoG
+            #structure_name, labelvalue = coord_to_structure(cog, atlasvol, defs, verbose=verbose)
+            # enclosing structure based on maximum overlap with cluster
+            structure_name, labelvalue = maximum_overlap_structure((labelvol.data==i), atlasvol, defs, verbose=verbose)
+
+            nvoxels_label = np.sum(maskarray & (atlasvol.data==labelvalue))
             # get values averages across the enclosing label
-            dflabel = getValues(atlasvol, labelvalue, vols, df, idcolumn, maskarray, verbose=verbose)
-            dflabel.rename(columns={'value': 'label'}, inplace=True)
+            dflabel = getValues(vols, atlasvol, labelvalue, df[idcolumn].values, maskarray, verbose=verbose)
+            dflabel['nvoxels']   = nvoxels_label
+            dflabel['volume']    = nvoxels_label*voxelvolume
+            dflabel['type']      = 'atlaslabel'
 
-            dfcluster = pd.concat([dfcluster,
-                pd.DataFrame({
-                    'structure'        : [structure_name]
-                    ,'nvoxels_label' : [nvoxels_label]
-                    ,'volume_label'  : [nvoxels_label*voxelvolume]
-                    ,'label_value'     : [labelvalue]
-                }, index=dfcluster.index)], axis=1)
+            # add CoG
+            cog = getCoG(atlasvol, labelvalue, maskarray, verbose=verbose)
+            addCoordColumns(dflabel, cog, 'cog_vox', dimnames=labelvol.dimnames)
+            addCoordColumns(dflabel, vox2world(cog, likevol=labelvol), 'cog_mm',
+                            dimnames=labelvol.dimnames)
 
-            dfcluster = pd.merge(dfcluster, dflabel)
-            id_vars = list(set(dfcluster.columns)-set(['cluster','label']))
-            dfcluster = pd.melt(dfcluster, id_vars=id_vars, var_name='ROI_type')   #, value_name='myValname')
+            dftmp = pd.concat([dftmp, dflabel])
 
-        dfstats = pd.concat([dfstats, dfcluster])
+        # for peak values
+        if statsvolname:
+            dfpeak = getPeakValues(vols, statsvolname, labelvol, i, df[idcolumn].values, maskarray=maskarray, smoothing_sigma=None, verbose=verbose)
+            dftmp = pd.concat([dftmp, dfpeak])
+
+        if atlasname and defsname:
+            dftmp['structure'] = structure_name
+            dftmp['label']     = labelvalue
+
+        dftmp['cluster_index'] = i
+        dfstats = pd.concat([dfstats, dftmp])
 
     return dfstats
 
@@ -263,7 +236,19 @@ def writeClusterstats(df, outname, selectcols=None, verbose=False):
     df.to_csv(outname, index=False)
 
 
+def maximum_overlap_structure(maskarray, labelvol, defsdf, verbose=False):
+    """ ... """
+    labelvalue = np.bincount(labelvol.data[maskarray].astype('int')).argmax()
+    tmp = defsdf.loc[(defsdf['right label']==labelvalue) | (defsdf['left label']==labelvalue),'Structure'].values
+    if tmp:
+        structure_name = tmp[0]
+    else:
+        structure_name = 'label' + str(labelvalue)
+    return (structure_name, labelvalue)
+
+
 def coord_to_structure(coord, labelvol, defsdf, verbose=False):
+    """retrieve structure label of coord"""
     #r = range(len(labelvol.dimnames))
     #idx = sorted(r,key=sorted(r,key=labelvol.dimnames.__getitem__).__getitem__)
     #coord = [coord[e] for e in [2,0,1]]
@@ -278,7 +263,7 @@ def coord_to_structure(coord, labelvol, defsdf, verbose=False):
 
 
 def printPrettyPandas(df):
-    """docstring for printPrettyPandas"""
+    """pretty print using whole width of terminal"""
     pd.set_option('display.width', pd.util.terminal.get_terminal_size()[0])
     pd.set_option('display.precision', 3)
     print df
@@ -327,6 +312,9 @@ if __name__ == "__main__":
     parser.add_option("--idcolumn", dest="idcolumn",
                       help="id column in table csv file",
                       type='string', default=None)
+    parser.add_option("--head", dest="head",
+                      help="show first n rows of output csv",
+                      action="store_true", default=False)
     parser.add_option("-v", "--verbose", dest="verbose",
                       help="more verbose output",
                       action="store_true", default=False)
@@ -372,13 +360,6 @@ if __name__ == "__main__":
                               maskarray=maskarray,
                               verbose=options.verbose)
 
-    # define first whether maximum per label? or maximum falling in label?
-    #peakvol = peak_volume(options.inputvol, threshold,
-    #                          outname=outname,
-    #                          maskarray=maskarray,
-    #                          smoothing_sigma=1.0,
-    #                          verbose=options.verbose)
-
     stats = clusterstats(vols, labelvol, filedf,
                          maskarray=maskarray,
                          atlasname=options.atlas,
@@ -392,7 +373,8 @@ if __name__ == "__main__":
         outname = options.outbase + '.csv'
         writeClusterstats(stats, outname, selectcols=None, verbose=options.verbose)
 
-    printPrettyPandas(stats.head())
+    if options.head:
+        printPrettyPandas(stats.head(30))
 
     labelvol.closeVolume()
     #maskvol.closeVolume()
@@ -407,7 +389,7 @@ clusterstat.py -v -f ../global/all_mice_local-fwhm0.1_short.csv -i all_anova_Cag
 
 library(RMINC)
 
-defs <- 'tmp_defs.csv'
+defs <- 'tmp/tmp_defs.csv'
 atlas <- 'foo_index.mnc'
 table <- '../global/all_mice_local-fwhm0.1_short.csv'
 t <- read.csv(table)
@@ -416,6 +398,8 @@ t$filename <- as.character(t$filename)
 o <- anatGetAll(t$filename, atlas=atlas, method="means", defs=defs, side='left')
 oo <- read.csv('foo.csv')
 
+mincGetWorldVoxel(t$filename, c(-1.96, 3.18, -1.51))
+mincGetVoxel(t$filename, c(48,203,77))
 
 
 o[,'cluster2']
@@ -426,5 +410,33 @@ subset(oo, ROI_type=='cluster' & cluster_index==2)$value
 [1] -0.01421306  0.12470805 -0.03438621  0.01336526  0.05975349  0.02671909 -0.03404596 -0.12932670  0.06470247
 > subset(oo, ROI_type=='cluster' & cluster_index==2)$value
 [1] -0.01421306  0.12470805 -0.03438621  0.01336526  0.05975349  0.02671909 -0.03404596 -0.12932670  0.06470247
+
+
+# df['x'],df['y'],df['z'] = (1,2,3)
+
+
+#cog = (0,0,0)
+#cog_mm = labelvol.getStarts() + np.array(cog)*labelvol.getSeparations()
+#dims = labelvol.getDimensionNames()
+#tmp = {'voxelcoords':zip(dims,cog),
+#       'worldcoords':zip([e+unitstring for e in dims],cog_mm)}
+
+#else:
+#    ids = [str(i+1) for i in range(len(df))]
+#    idcolumn = 'id'
+
+#dftmp['max_val'] = peakvol.data[maxvoxidx]
+#dftmp['min_val'] = peakvol.data[minvoxidx]
+#maxidx = peakvol.getStarts() + np.array(maxvoxidx)*peakvol.getSeparations()
+#minidx = peakvol.getStarts() + np.array(minvoxidx)*peakvol.getSeparations()
+#addCoordColumns(dftmp, maxidx, 'max_mm', dimnames=labelvol.dimnames)
+#addCoordColumns(dftmp, minidx, 'min_mm', dimnames=labelvol.dimnames)
+#addCoordColumns(dftmp, maxvoxidx, 'max_vox', dimnames=labelvol.dimnames)
+#addCoordColumns(dftmp, minvoxidx, 'min_vox', dimnames=labelvol.dimnames)
+
+#if verbose: print 'peak voxel maximum', maxvoxidx, maxidx, peakvol.data[maxvoxidx]
+#if verbose: print 'peak voxel minimum', minvoxidx, minidx, peakvol.data[minvoxidx]
+
+#dfstats.rename(columns={'value': 'cluster'}, inplace=True)
     """
 
