@@ -199,7 +199,7 @@ def clusterstats(vols, labelvol, df, maskarray, atlasname, defsname, voxelthresh
             # enclosing structure based on CoG
             #structure_name, labelvalue = coord_to_structure(cog, atlasvol, defs, verbose=verbose)
             # enclosing structure based on maximum overlap with cluster
-            structure_name, labelvalue = maximum_overlap_structure((labelvol.data==i), atlasvol, defs, verbose=verbose)
+            labelvalue, structure_name, side = maximum_overlap_structure((labelvol.data==i), atlasvol, defs, verbose=verbose)
 
             nvoxels_label = np.sum(maskarray & (atlasvol.data==labelvalue))
             # get values averages across the enclosing label
@@ -223,6 +223,7 @@ def clusterstats(vols, labelvol, df, maskarray, atlasname, defsname, voxelthresh
 
         if atlasname and defsname:
             dftmp['structure'] = structure_name
+            dftmp['side'] = side
             dftmp['label']     = labelvalue
 
         dftmp['cluster_index'] = i
@@ -239,12 +240,24 @@ def writeClusterstats(df, outname, selectcols=None, verbose=False):
 def maximum_overlap_structure(maskarray, labelvol, defsdf, verbose=False):
     """ ... """
     labelvalue = np.bincount(labelvol.data[maskarray].astype('int')).argmax()
-    tmp = defsdf.loc[(defsdf['right label']==labelvalue) | (defsdf['left label']==labelvalue),'Structure'].values
-    if tmp:
-        structure_name = tmp[0]
+    tmp_right = defsdf.loc[(defsdf['right label']==labelvalue),'Structure'].values
+    tmp_left  = defsdf.loc[(defsdf['left label']==labelvalue), 'Structure'].values
+
+    if tmp_right and tmp_left:
+        if tmp_right[0] != tmp_left[0]:
+            raise ValueError('label', labelvalue)
+        structure_name = tmp_right[0]
+        side = 'both'
+    elif tmp_right:
+        structure_name = tmp_right[0]
+        side = 'right'
+    elif tmp_left:
+        structure_name = tmp_left[0]
+        side = 'left'
     else:
         structure_name = 'label' + str(labelvalue)
-    return (structure_name, labelvalue)
+        side = 'NA'
+    return (labelvalue, structure_name, side)
 
 
 def coord_to_structure(coord, labelvol, defsdf, verbose=False):
