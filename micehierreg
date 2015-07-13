@@ -24,7 +24,7 @@ QUEUE="all.q,diddl.q"
 ADDCMDS="-lsq6 -no-lsq6-large-rotations -no-registration-accuracy -cleanup -bootstrap-downsample-factor 1 -lsq6-kernels 1_blur,0.5_dxyz,0.25_blur"
 
 INITMODEL=/axiom2/projects/software/initial-models/binb-model-invivo-p65-model-Leigh-90micron/p65_MEMRI_mouse_brain
-INITMODROOT=/projects/muisjes/jscholz/LIFE/reg/init-model-for-90micron-nlins/p65_MEMRI_mouse_brain
+INITMODROOT=/home/jscholz/resources/registration/init-models/init-model-for-90micron-nlins/p65_MEMRI_mouse_brain
 
 
 # default pipeline name (flat and root)
