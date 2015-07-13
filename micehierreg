@@ -24,6 +24,7 @@ QUEUE="all.q,diddl.q"
 ADDCMDS="-lsq6 -no-lsq6-large-rotations -no-registration-accuracy -cleanup -bootstrap-downsample-factor 1 -lsq6-kernels 1_blur,0.5_dxyz,0.25_blur"
 
 INITMODEL=/axiom2/projects/software/initial-models/binb-model-invivo-p65-model-Leigh-90micron/p65_MEMRI_mouse_brain
+INITMODROOT=/projects/muisjes/jscholz/LIFE/reg/init-model-for-90micron-nlins/p65_MEMRI_mouse_brain
 
 
 # default pipeline name (flat and root)
@@ -32,17 +33,20 @@ DEFAULTPNAME=all
 usage ()
 {
 	echo "Usage: $(basename $0) [-f|-h|-r] -o OUTBASE TABLE"
-	echo "  -o OUTBASE    basename of file containing MICe-build-model commands"
-	echo "  TABLE         association between file filename, id, and scan (time)"
+	echo "  -o OUTBASE basename of file containing MICe-build-model commands"
+	echo "  TABLE      association between file filename, id, and scan (time)"
 	echo "  "
-	echo "  -f            flat registration, all images to one template"
-	echo "  -h            hierarchical registration (1), generate (subject-specific templates)"
-	echo "  -r            hierarchical registration (2), generate (study-specific template)"
-	echo "  -x            hierarchical registration (3), resample jacobians to study-specific template"
+	echo "  -f         flat registration, all images to one template"
+	echo "  -h         hierarchical registration (1), generate (subject-specific templates)"
+	echo "  -r         hierarchical registration (2), generate (study-specific template)"
+	echo "  -x         hierarchical registration (3), resample jacobians to study-specific template"
     echo
-    echo "  -b            bootstrap"
+    echo "  -i INITMODEL_BASE       basename of initial model"
+    echo "  -I ROOT_INITMODEL_BASE  basename of initial model for root registration"
     echo
-	echo "  -X JAC        like '-x', but requires jacobian suffix, default for '-x' is \"-log-determinant-fwhm0.1.mnc\""
+    echo "  -b         bootstrap"
+    echo
+	echo "  -X JAC     like '-x', but requires jacobian suffix, default for '-x' is \"-log-determinant-fwhm0.1.mnc\""
 	echo
 	printf "run registration scripts from quarantine, e.g.:\n. /projects/mice/share/arch/linux64/quarantine_toothless/environment\n"
 }
@@ -155,6 +159,17 @@ hier_root_reg ()
 {
 # final (root) part of hierarchical registration
 # register subject-specific templates to study-specific template
+
+echo "###############################################################################"
+echo "WARNING: init-model for root has identity transfrom BASE_to_standard.xfm."
+echo "         BASE.mnc, BASE-small.mnc are identical to all the other standard"
+echo "         space init model images"
+echo "###############################################################################"
+echo
+echo "current inital transform is"
+xfm2param ${INITMODROOT}_to_standard.xfm
+echo
+
 SUFFIX=hier
 PBASEHIER=$PWD/$SUFFIX
 ROOTSUFFIX=hier-root
@@ -167,7 +182,7 @@ mkdir -p $ROOTPBASE
 if [ ! -z "$BOOTSTRAP" ]; then
     echo -n "`model_command $ROOTPBASE $PNAME $ADDCMDS -bootstrap-model $ROOTPBASE/${PNAME}_bootstrap`" > $ROOTSCRIPT
 else
-    echo -n "`model_command $ROOTPBASE $PNAME $ADDCMDS -init-model $INITMODEL`" > $ROOTSCRIPT
+    echo -n "`model_command $ROOTPBASE $PNAME $ADDCMDS -init-model $INITMODROOT`" > $ROOTSCRIPT
 fi
 
 # aggregate nlin's
@@ -237,13 +252,15 @@ done
 ###############################################################################
 echo "`basename $0` $@ # `date`" >> .`basename $0`.log
 
-while getopts o:fhrbxX:v opt
+while getopts o:fhri:I:bxX:v opt
 do
 	case "$opt" in
 		o)  OUTBASE="$OPTARG";;
 		f)  FLATREG=1;;
 		h)  HIERREG=1;;
 		r)  ROOTREG=1;;
+		i)  INITMODEL="$OPTARG";;
+		I)  INITMODROOT="$OPTARG";;
         b)  BOOTSTRAP=1;;
 		x)  GETJACS=1;;
 		X)  GETJACS=1; JAC="$OPTARG";;
