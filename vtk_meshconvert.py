@@ -46,6 +46,57 @@ def view(stlfilename):
     iren.Start()
 
 
+def addColors(infilename, outfilename, binary=True, verbose=False):
+    """add color array"""
+
+    outformat = path.splitext(outfilename)[1].strip('.')
+    if outformat!='ply':
+        raise ValueError('colors are only supported for PLY format')
+
+    informat = path.splitext(infilename)[1].strip('.')
+    # set reader based on filename extension
+    if informat=='stl':
+        reader = vtk.vtkSTLReader()
+    elif informat=='vtk':
+        reader = vtk.vtkPolyDataReader()
+    elif informat=='obj':
+        reader = vtk.vtkMNIObjectReader()
+    elif informat=='ply':
+        reader = vtk.vtkPLYReader()
+    elif informat=='vtp':
+        reader = vtk.vtkXMLPolyDataReader()
+    else:
+        raise ValueError('cannot read input format: ' + informat)
+    reader.SetFileName(infilename)
+    reader.Update()
+
+    N = reader.GetOutput().GetNumberOfPolys()
+    Colors = vtk.vtkUnsignedCharArray()
+    Colors.SetNumberOfComponents(3)
+    Colors.SetName("Colors")
+
+    for i in range(1,N):
+        Colors.InsertNextTuple3(250,250,i%250)
+
+    polydata = vtk.vtkPolyData()
+    polydata = reader.GetOutput()
+
+    polydata.GetPointData().SetScalars(Colors)
+    polydata.Modified()
+
+    writer = vtk.vtkPLYWriter()
+    writer.SetArrayName("Colors")
+    writer.SetInputData(polydata)
+    writer.SetFileName(outfilename)
+    if binary:
+        if verbose: print 'setting ouptut to binary'
+        writer.SetFileTypeToBinary()
+    else:
+        if verbose: print 'setting ouptut to ascii'
+        writer.SetFileTypeToASCII()
+    err = writer.Write()
+
+
 def readMeshFile(filename, clean=True, verbose=False):
     """Read mesh file.
     The input format is determined by file name extension.
@@ -160,6 +211,9 @@ if __name__ == "__main__":
     parser.add_option("--noclean", dest="clean",
                       help="remove degenerate data",
                       action="store_false", default=True)
+    parser.add_option("--color", dest="color",
+                      help="add color",
+                      action="store_true", default=False)
     parser.add_option("--view", dest="view",
                       help="view stl file",
                       action="store_true", default=False)
