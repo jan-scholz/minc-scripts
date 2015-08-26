@@ -6,10 +6,11 @@
 # original version: 2015-03-25
 # based on: http://www.cfd-online.com/Forums/openfoam-meshing/86416-vtk-openfoam-something-else-can-reach-after-openfoam.html
 
-import vtk
-from optparse import OptionParser
 from os import path
 import sys
+from optparse import OptionParser
+import numpy as np
+import vtk
 
 
 class MyParser(OptionParser):
@@ -46,7 +47,21 @@ def view(stlfilename):
     iren.Start()
 
 
-def addColors(infilename, outfilename, binary=True, verbose=False):
+def readColorFile(filename, verbose=False):
+    ar = np.loadtxt(filename)
+    if np.max(ar) > 255 or np.min(ar) < 0:
+        raise ValueError('color values need to be in range [0..255]')
+    if len(ar.shape) == 1:
+        ar = np.vstack((ar,ar,ar)).T
+    elif ar.shape[1] == 3:
+        pass
+    else:
+        raise ValueError('use one or three column color array')
+    return ar
+
+
+def addColors(infilename, outfilename, colorfilename=None, colorstring=None,
+                                                    binary=True, verbose=False):
     """add color array"""
 
     outformat = path.splitext(outfilename)[1].strip('.')
@@ -70,13 +85,26 @@ def addColors(infilename, outfilename, binary=True, verbose=False):
     reader.SetFileName(infilename)
     reader.Update()
 
-    N = reader.GetOutput().GetNumberOfPolys()
+    #N = reader.GetOutput().GetNumberOfPolys()
+    N = reader.GetOutput().GetNumberOfPoints()
+    if verbose:
+        print "read %i points (vertices)" % (N,)
+
+    if colorfilename:
+        colorar = readColorFile(colorfilename)
+        if N != colorar.shape[0]:
+            raise ValueError('number of rows in color file does not match' +
+                             'number of points in mesh file')
+    elif colorstring:
+        color = [int(i) for i in colorstring.split()]
+        colorar = np.ones((N,3)) * np.array(color)
+
     Colors = vtk.vtkUnsignedCharArray()
     Colors.SetNumberOfComponents(3)
     Colors.SetName("Colors")
 
-    for i in range(1,N):
-        Colors.InsertNextTuple3(250,250,i%250)
+    for i in range(0,N):
+        Colors.InsertNextTuple3(*colorar[i,:])
 
     polydata = vtk.vtkPolyData()
     polydata = reader.GetOutput()
@@ -212,8 +240,11 @@ if __name__ == "__main__":
                       help="remove degenerate data",
                       action="store_false", default=True)
     parser.add_option("--color", dest="color",
-                      help="add color",
-                      action="store_true", default=False)
+                      help="add color, three values [0..255]",
+                      type='string', default=None)
+    parser.add_option("--colorfile", dest="colorfile",
+                      help="add color, three column file [0..255]",
+                      type='string', default=None)
     parser.add_option("--view", dest="view",
                       help="view stl file",
                       action="store_true", default=False)
@@ -240,8 +271,11 @@ if __name__ == "__main__":
         view(options.infilename)
         sys.exit(0)
 
-    if options.color:
-        addColors(options.infilename, options.outfilename, binary=options.binary)
+    if options.color or options.colorfile:
+        addColors(options.infilename, options.outfilename,
+                  colorstring=options.color,
+                  colorfilename=options.colorfile,
+                  binary=options.binary, verbose=options.verbose)
         sys.exit(0)
 
     triangles = readMeshFile(options.infilename, clean=options.clean, verbose=options.verbose)
