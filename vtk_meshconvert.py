@@ -9,12 +9,41 @@
 import vtk
 from optparse import OptionParser
 from os import path
+import sys
 
 
 class MyParser(OptionParser):
     """alow adding usage examples in epilog"""
     def format_epilog(self, formatter):
         return '\n' + self.epilog + '\n'
+
+
+def view(stlfilename):
+    reader = vtk.vtkSTLReader()
+    reader.SetFileName(stlfilename)
+
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputConnection(reader.GetOutputPort())
+
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+
+    # Create a rendering window and renderer
+    ren = vtk.vtkRenderer()
+    renWin = vtk.vtkRenderWindow()
+    renWin.AddRenderer(ren)
+
+    # Create a renderwindowinteractor
+    iren = vtk.vtkRenderWindowInteractor()
+    iren.SetRenderWindow(renWin)
+
+    # Assign actor to the renderer
+    ren.AddActor(actor)
+
+    # Enable user interface interactor
+    iren.Initialize()
+    renWin.Render()
+    iren.Start()
 
 
 def readMeshFile(filename, clean=True, verbose=False):
@@ -34,6 +63,8 @@ def readMeshFile(filename, clean=True, verbose=False):
         reader = vtk.vtkMNIObjectReader()
     elif informat=='ply':
         reader = vtk.vtkPLYReader()
+    elif informat=='vtp':
+        reader = vtk.vtkXMLPolyDataReader()
     #elif informat=='tag':
     #    reader = vtk.vtkMNITagPointReader()
     else:
@@ -80,10 +111,12 @@ def writeMeshFile(triangles, filename, binary=True, verbose=False):
         write = vtk.vtkMNIObjectWriter()
     elif outformat=='ply':
         write = vtk.vtkPLYWriter()
+    elif outformat=='vtp':
+        write = vtk.vtkXMLPolyDataWriter()
     elif outformat=='tag':
         write = vtk.vtkMNITagPointWriter()
     else:
-        raise ValueError('cannot write outpur format' + outformat)
+        raise ValueError('cannot write output format' + outformat)
     write.SetInputConnection(triangles.GetOutputPort())
 
     if outformat!='tag':
@@ -127,6 +160,9 @@ if __name__ == "__main__":
     parser.add_option("--noclean", dest="clean",
                       help="remove degenerate data",
                       action="store_false", default=True)
+    parser.add_option("--view", dest="view",
+                      help="view stl file",
+                      action="store_true", default=False)
     parser.add_option("-v", "--verbose", dest="verbose",
                       help="more verbose output",
                       action="store_true", default=False)
@@ -145,6 +181,14 @@ if __name__ == "__main__":
     outpath = path.dirname(options.outfilename)
     if outpath and not path.exists(outpath):
         parser.error('output directory does not exist: ' + outpath)
+
+    if options.view:
+        view(options.infilename)
+        sys.exit(0)
+
+    if options.color:
+        addColors(options.infilename, options.outfilename, binary=options.binary)
+        sys.exit(0)
 
     triangles = readMeshFile(options.infilename, clean=options.clean, verbose=options.verbose)
 
