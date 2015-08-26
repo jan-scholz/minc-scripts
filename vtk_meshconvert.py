@@ -32,6 +32,8 @@ def readMeshFile(filename, clean=True, verbose=False):
         reader = vtk.vtkPolyDataReader()
     elif informat=='obj':
         reader = vtk.vtkMNIObjectReader()
+    elif informat=='ply':
+        reader = vtk.vtkPLYReader()
     #elif informat=='tag':
     #    reader = vtk.vtkMNITagPointReader()
     else:
@@ -76,6 +78,8 @@ def writeMeshFile(triangles, filename, binary=True, verbose=False):
         write = vtk.vtkPolyDataWriter()
     elif outformat=='obj':
         write = vtk.vtkMNIObjectWriter()
+    elif outformat=='ply':
+        write = vtk.vtkPLYWriter()
     elif outformat=='tag':
         write = vtk.vtkMNITagPointWriter()
     else:
