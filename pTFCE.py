@@ -45,10 +45,10 @@ def tfce_both(invol, outvol, dh=0.1, E=0.5, H=2.0, mask='', verbose=False):
     tfce(invol, outvol, dh, E, H, mask, verbose)
 
 
-def tfce_max(vol, mask=''):
+def tfce_max(vol, mask='', verbose=False):
     # get the maximum within the volume or optional mask
     if mask:
-        #if verbose: print 'using mask', mask
+        if verbose: print 'using mask', mask
         maskvol = volumeFromFile(mask)
         labels = array(maskvol.data > 0.5, "uint8")
     else:
@@ -88,7 +88,7 @@ def run_tfce(input_filenames, suffix='_tfce',
                     invol = volumeFromFile(f)
                     outvol = volumeFromInstance(invol, output_basename + '.mnc', dtype='ushort')
                     tfce_both(invol, outvol, dh, extent, height, mask, verbose)
-                    tmp = tfce_max(outvol, mask=mask)
+                    tmp = tfce_max(outvol, mask=mask, verbose=verbose)
                     if not no_image_output:
                         outvol.writeFile()
                     else:
@@ -121,7 +121,7 @@ if __name__ == "__main__":
     usage = """usage: %prog [-h/--help] [options] MINCFILE.."""
     description = """Applies the threshold free cluster enhancement (TFCE) to a statistics image. """
     parser = OptionParser(usage=usage, description=description)
-    
+
     parser.add_option("-d", "--dh", dest="dh",
                       help="Increments over which to compute TFCE [default: %default]",
                       type="float", default=0.1)
@@ -165,12 +165,12 @@ if __name__ == "__main__":
     group = OptionGroup(parser, "REFERENCE", "Smith and Nichols. Threshold-free cluster enhancement: addressing problems of smoothing, threshold dependence and localisation in cluster inference. NeuroImage (2009) vol. 44 (1) pp. 83-98")
     #group.add_option("-g", action="store_true", help="Group option.")
     parser.add_option_group(group)
-    
+
     (options, args) = parser.parse_args()
-    
+
     if len(args) < 1:
         parser.error("Incorrect number of arguments")
-    
+
     if options.mask and not path.exists(options.mask):
         raise IOError('Could not open mask: %s' % options.mask)
 
@@ -196,7 +196,7 @@ if __name__ == "__main__":
 
 # testing
 #
-# TFCE      
+# TFCE
 # time for f in out0000*_mean.mnc; do echo TFCE.py $f `basename $f .mnc`_tfce1.mnc; done | parallel -j1
 #  real	0m47.952s
 #  user	0m37.500s
