@@ -1,0 +1,48 @@
+#! /bin/bash
+#
+# create a new xfm text file that links to the input xfm text file and grid
+#
+# original version: 2015-11-30
+# author: jan.scholz@mouseimaging.ca
+#
+
+usage ()
+{
+    echo "Usage: $(basename $0) -o OUTBASE -x XFM GRID"
+    echo "explanation"
+}
+
+
+while getopts o:x:lv opt
+do
+    case "$opt" in
+        o)  OUTBASE="$OPTARG";;
+        x)      XFM="$OPTARG";;
+        l)     LINK=1;;
+        v)  VERBOSE="-v";;
+        \?)  usage; exit 1;;
+    esac
+done
+shift $(expr $OPTIND - 1)
+
+GRID=$1
+
+[ -f "$GRID" ] || { echo "ERROR: could not find GRID: $GRID"; exit 1; }
+[ -z "$XFM" ] && { echo "ERROR: XFM not specified"; exit 1; }
+[ -z "$OUTBASE" ] && { echo "ERROR: OUTBASE not specified"; exit 1; }
+
+grep -i "Transform_Type *= *Grid_Transform" $XFM > /dev/stderr && { echo "ERROR: cannot use XFM with Transform_Type Grid_Transform"; exit 1; }
+
+
+# copy XFM file, alter modified
+cp $VERBOSE $XFM ${OUTBASE}.xfm
+
+if [ -z "$LINK" ]; then
+    cp $VERBOSE $GRID ${OUTBASE}_grid_0.mnc
+else
+    ln -sf $VERBOSE `basename $GRID` ${OUTBASE}_grid_0.mnc
+fi
+
+echo "Transform_Type = Grid_Transform;" >> ${OUTBASE}.xfm
+echo "Displacement_Volume = `basename ${OUTBASE}_grid_0.mnc`;" >> ${OUTBASE}.xfm
+
